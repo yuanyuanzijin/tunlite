@@ -46,3 +46,9 @@ test('confirm returns false for a non-yes answer', async () => {
   assert.equal(answered, false);
   assert.match(c.out(), /proceed\?/);
 });
+
+test('canPrompt is false when stdio is not a terminal (tests / CI)', () => {
+  // Under `node --test` stdout is piped (not a tty), so neither the stdin+stdout
+  // path nor the /dev/tty path qualifies — install onboarding stays non-interactive.
+  assert.equal(core.canPrompt(), false);
+});

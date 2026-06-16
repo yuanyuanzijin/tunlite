@@ -4,6 +4,8 @@
 // interactive/daemon-down helpers. Imported by cli.js and every command module;
 // it must NOT require ./cli (keeps the dependency one-directional, no cycles).
 
+const fs = require('fs');
+
 const EXIT = { OK: 0, ERROR: 1, USAGE: 2, NOTFOUND: 3, NEEDS_AUTH: 4, DAEMON: 5 };
 
 // ---- tiny flag parser ---------------------------------------------------
@@ -49,20 +51,49 @@ function isInteractive() {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
-// Minimal y/N prompt on the controlling terminal.
-// On a real terminal we hand the prompt straight to readline.question: in
-// terminal mode readline refreshes the current line, which ERASES a prompt
-// written separately beforehand — so it must own the text it renders. In
-// non-TTY / captured-`io` contexts (tests) readline does not refresh, so we
-// write the prompt through io.out where the caller can see it and pass readline
-// an empty query. For the real CLI io.out IS process.stdout, so either way the
-// prompt is printed exactly once.
+function answeredYes(ans) { return /^y(es)?$/i.test((ans || '').trim()); }
+
+// Can we run an interactive prompt right now? True when stdin+stdout are a
+// terminal (a direct CLI run), OR when stdout is a terminal and a controlling
+// tty exists even though stdin is piped — e.g. `curl … | sh`, where stdin
+// carries the install script, not the user's keystrokes. (No /dev/tty on
+// Windows, so the piped case can't prompt there.)
+function canPrompt() {
+  if (process.stdin.isTTY && process.stdout.isTTY) return true;
+  if (process.stdout.isTTY && process.platform !== 'win32') {
+    try { fs.closeSync(fs.openSync('/dev/tty', 'r')); return true; } catch (_) { /* no tty */ }
+  }
+  return false;
+}
+
+// y/N prompt. WHERE the answer is read mirrors canPrompt()'s reasoning:
+//   1. stdin is a tty            → readline owns stdin/stdout and renders the prompt.
+//   2. stdin piped, stdout a tty → read the answer from /dev/tty, so we neither
+//      consume the piped script (`curl | sh`) nor leave the prompt invisible.
+//   3. otherwise (tests / no tty) → write the prompt through io.out (where a
+//      captured-io caller can see it) and read whatever is on stdin.
+// readline must OWN the text it prints (terminal-mode line refresh erases a
+// separately-written prompt), so cases 1–2 pass the prompt to rl.question.
 function confirm(io, prompt) {
   return new Promise((resolve) => {
-    const tty = Boolean(process.stdout.isTTY);
-    if (!tty) io.out.write(prompt);
-    const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(tty ? prompt : '', (ans) => { rl.close(); resolve(/^y(es)?$/i.test((ans || '').trim())); });
+    const readline = require('readline');
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      rl.question(prompt, (ans) => { rl.close(); resolve(answeredYes(ans)); });
+      return;
+    }
+    if (process.stdout.isTTY && process.platform !== 'win32') {
+      try {
+        const fd = fs.openSync('/dev/tty', 'r');
+        const input = fs.createReadStream(null, { fd, autoClose: true });
+        const rl = readline.createInterface({ input, output: process.stdout });
+        rl.question(prompt, (ans) => { rl.close(); try { input.destroy(); } catch (_) {} resolve(answeredYes(ans)); });
+        return;
+      } catch (_) { /* no controlling terminal — fall through */ }
+    }
+    io.out.write(prompt);
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    rl.question('', (ans) => { rl.close(); resolve(answeredYes(ans)); });
   });
 }
 
@@ -76,6 +107,6 @@ function printDaemonDown(io) {
 function pad(s, n) { s = String(s); return s.length >= n ? s : s + ' '.repeat(n - s.length); }
 
 module.exports = {
-  EXIT, parseFlags, jsonOut, line, errline, isInteractive, sleep, confirm,
+  EXIT, parseFlags, jsonOut, line, errline, isInteractive, canPrompt, sleep, confirm,
   printDaemonDown, pad,
 };

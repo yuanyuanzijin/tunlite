@@ -15,7 +15,7 @@ const autostart = require('../autostart');
 const skillmod = require('../skill');
 const installer = require('../install');
 const completionmod = require('../completion');
-const { EXIT, parseFlags, jsonOut, line, errline, isInteractive, confirm } = require('../cli-core');
+const { EXIT, parseFlags, jsonOut, line, errline, canPrompt, confirm } = require('../cli-core');
 const { daemonPing } = require('../daemon-control');
 
 // Register the OS autostart service (drives the autostart adapter; sandboxed
@@ -74,7 +74,7 @@ async function onboardChoices(flags, io) {
   else if (flags['--no-service']) service = false;
   else if (process.env.TUNLITE_SERVICE) service = /^y(es)?$/i.test(process.env.TUNLITE_SERVICE);
   else if (flags['--yes'] || flags['-y']) service = false;
-  else if (isInteractive()) service = await confirm(io, 'Register tunlite to start on login (autostart the daemon)? [y/N] ');
+  else if (canPrompt()) service = await confirm(io, 'Register tunlite to start on login (autostart the daemon)? [y/N] ');
   else service = false;
 
   // skill: --skill <dir> / --no-skill / env TUNLITE_SKILL=user|cwd|path|no / prompt
@@ -83,7 +83,7 @@ async function onboardChoices(flags, io) {
   else if (flags['--skill']) skill = flags['--skill'];
   else if (process.env.TUNLITE_SKILL) skill = /^no$/i.test(process.env.TUNLITE_SKILL) ? null : process.env.TUNLITE_SKILL;
   else if (flags['--yes'] || flags['-y']) skill = null;
-  else if (isInteractive() && await confirm(io, 'Install the tunlite agent skill for Claude Code? [y/N] ')) skill = 'user';
+  else if (canPrompt() && await confirm(io, 'Install the tunlite agent skill for Claude Code? [y/N] ')) skill = 'user';
 
   // completion: --completion / --no-completion / env TUNLITE_COMPLETION=yes|no /
   // prompt. Resolves to a shell name to wire, or false. Only offered when a
@@ -94,7 +94,7 @@ async function onboardChoices(flags, io) {
   else if (flags['--completion']) completion = detected;
   else if (process.env.TUNLITE_COMPLETION) completion = /^y(es)?$/i.test(process.env.TUNLITE_COMPLETION) ? detected : false;
   else if (flags['--yes'] || flags['-y']) completion = false;
-  else if (detected && isInteractive() && await confirm(io, `Enable shell completion for ${detected}? [y/N] `)) completion = detected;
+  else if (detected && canPrompt() && await confirm(io, `Enable shell completion for ${detected}? [y/N] `)) completion = detected;
   return { service, skill, completion };
 }
 

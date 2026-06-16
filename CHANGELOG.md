@@ -6,6 +6,26 @@ All notable changes to **tunlite** are recorded here. The format follows
 monotonically increasing). See [docs/VERSIONING.md](docs/VERSIONING.md) for the
 release process.
 
+## [0.9.2] - 2026-06-17
+
+### Fixed
+- **Too-old Node now fails fast with a clear message instead of a cryptic
+  crash.** Running under Node < 18 (e.g. an old `nvm` default) let `install`
+  print success and then throw a `SyntaxError` from a module using newer syntax,
+  with no hint why. The entry point now checks the Node version first — before
+  requiring any modern module — and exits with `tunlite requires Node.js >= 18 …`
+  plus the `nvm install 18` fix. The guard lives in a small ES5-only
+  `src/node-check.js` so it parses on any runtime.
+- **`curl … | sh` now prompts instead of silently skipping setup.** Piped into a
+  shell the installer's stdin carries the script, so the interactive service /
+  skill / completion questions were skipped — nothing got registered and the
+  daemon never started, making it look like `install` hadn't run. `confirm()`
+  now reads the answer from the controlling terminal (`/dev/tty`) when stdin is
+  piped, so the one-liner asks the same y/N questions as a direct run (pre-answer
+  with `--service` / `--no-skill` / … to stay non-interactive). Both bootstraps
+  also verify Node ≥ 18 up front. On Windows (no `/dev/tty`) the bootstrap
+  registers autostart by default; the skill and completion stay opt-in.
+
 ## [0.9.1] - 2026-06-16
 
 ### Fixed
@@ -370,6 +390,7 @@ First public release.
 - Docs: README, 30-second quickstart, install & validation checklist, design
   spec, and this changelog + versioning policy.
 
+[0.9.2]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.7.0...v0.8.0
