@@ -6,6 +6,15 @@ All notable changes to **tunlite** are recorded here. The format follows
 monotonically increasing). See [docs/VERSIONING.md](docs/VERSIONING.md) for the
 release process.
 
+## [0.9.1] - 2026-06-16
+
+### Fixed
+- **`install` confirmation prompts were invisible on a real terminal.** The
+  prompt was written separately and then readline opened with an empty query;
+  in terminal mode readline's line refresh erased the just-written text, leaving
+  a blank line where the question should be (you had to answer blind). The
+  prompt is now rendered by readline itself, so it always shows.
+
 ## [0.9.0] - 2026-06-16
 
 ### Added
@@ -361,6 +370,7 @@ First public release.
 - Docs: README, 30-second quickstart, install & validation checklist, design
   spec, and this changelog + versioning policy.
 
+[0.9.1]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.6.0...v0.7.0

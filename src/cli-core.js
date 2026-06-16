@@ -50,16 +50,19 @@ function isInteractive() {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 // Minimal y/N prompt on the controlling terminal.
-// The PROMPT is written through the injected `io.out` (not process.stdout
-// directly) so captured-`io` contexts see it. readline still uses process.stdout
-// as its output so a TTY user's typed answer echoes as usual; we pass an empty
-// question string so readline doesn't print a second prompt. For the real CLI,
-// io.out IS process.stdout, so the interactive experience is unchanged.
+// On a real terminal we hand the prompt straight to readline.question: in
+// terminal mode readline refreshes the current line, which ERASES a prompt
+// written separately beforehand — so it must own the text it renders. In
+// non-TTY / captured-`io` contexts (tests) readline does not refresh, so we
+// write the prompt through io.out where the caller can see it and pass readline
+// an empty query. For the real CLI io.out IS process.stdout, so either way the
+// prompt is printed exactly once.
 function confirm(io, prompt) {
   return new Promise((resolve) => {
-    io.out.write(prompt);
+    const tty = Boolean(process.stdout.isTTY);
+    if (!tty) io.out.write(prompt);
     const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout });
-    rl.question('', (ans) => { rl.close(); resolve(/^y(es)?$/i.test((ans || '').trim())); });
+    rl.question(tty ? prompt : '', (ans) => { rl.close(); resolve(/^y(es)?$/i.test((ans || '').trim())); });
   });
 }
 
