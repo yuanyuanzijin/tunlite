@@ -91,9 +91,13 @@ test('a malicious channel name cannot escape the log dir (no path traversal)', a
   }
   assert.ok(fs.existsSync(expected), 'sanitized log file should exist inside the dir');
 
-  // No file was created outside the temp dir, and the resolved path stays within it.
+  // The resolved path stays within the log dir, and nothing escaped it: the dir
+  // holds ONLY the flat sanitized file. (Probing a real path like
+  // `<dir>/../../etc/passwd` is wrong — on a shallow tmp root such as Linux's
+  // /tmp it resolves to the system's own /etc/passwd, which exists regardless
+  // of this code, so the check would spuriously fail there.)
   assert.ok(path.resolve(expected).startsWith(path.resolve(dir) + path.sep),
     'the log file must stay inside the log dir');
-  assert.ok(!fs.existsSync(path.resolve(dir, '..', '..', 'etc', 'passwd')),
-    'traversal target must not be written');
+  assert.deepEqual(fs.readdirSync(dir), [path.basename(expected)],
+    'only the sanitized flat file should exist; nothing escaped the log dir');
 });
