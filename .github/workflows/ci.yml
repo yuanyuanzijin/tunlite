@@ -1,18 +1,10 @@
 name: CI
 
-# While this repo is in PRIVATE staging, Actions minutes are metered and the
-# macOS matrix legs bill at 10x — enough to exhaust the monthly quota in a few
-# dozen pushes. Routine push/PR triggers are therefore DISABLED; tests are run
-# locally (`node --test`, 341 cases) before every commit instead.
-#
-# WHEN THIS GOES PUBLIC: standard-runner minutes are free again — restore the
-# triggers by uncommenting the block below (and drop `workflow_dispatch` if you
-# don't want the manual button).
 on:
-  workflow_dispatch:        # manual-only during private staging
-  # push:
-  #   branches: [dev, master]
-  # pull_request:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:        # manual trigger
 
 permissions:
   contents: read
@@ -21,11 +13,10 @@ jobs:
   test:
     name: node ${{ matrix.node }} · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    # Hard cap so a hung test can NEVER run to GitHub's 6-hour default again.
-    # (Node 18's `node --test` has no default per-test timeout, so a test that
-    # waits on something that never resolves hangs forever; one such macOS job
-    # ran 6h = 360min x10 billing = ~3,600 metered minutes from a single job.)
-    # The full 341-case suite finishes in well under a minute.
+    # Hard cap so a hung test can never run to GitHub's 6-hour default.
+    # (`node --test` has no default per-test timeout, so a test that waits on
+    # something that never resolves would hang forever.) The full 341-case
+    # suite finishes in well under a minute.
     timeout-minutes: 5
     strategy:
       fail-fast: false
