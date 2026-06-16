@@ -1,0 +1,101 @@
+'use strict';
+
+// macOS launchd LaunchAgent adapter.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const cp = require('child_process');
+
+function plistPath(ctx) {
+  const dir = (ctx && ctx.launchAgentsDir) || path.join(os.homedir(), 'Library', 'LaunchAgents');
+  return path.join(dir, `${ctx.label}.plist`);
+}
+
+function render(ctx) {
+  const args = [ctx.nodePath, ctx.entry, 'daemon', 'run'];
+  const argXml = args.map((a) => `      <string>${escapeXml(a)}</string>`).join('\n');
+  const content = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>${ctx.label}</string>
+    <key>ProgramArguments</key>
+    <array>
+${argXml}
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>${escapeXml(ctx.pathEnv)}</string>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>${escapeXml(path.join(ctx.logDir, 'launchd.out.log'))}</string>
+    <key>StandardErrorPath</key>
+    <string>${escapeXml(path.join(ctx.logDir, 'launchd.err.log'))}</string>
+  </dict>
+</plist>
+`;
+  return { path: plistPath(ctx), content };
+}
+
+function install(ctx) {
+  const { path: file, content } = render(ctx);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(ctx.logDir, { recursive: true });
+  fs.writeFileSync(file, content);
+  const uid = process.getuid ? process.getuid() : 0;
+  // Prefer the modern bootstrap API, fall back to legacy load.
+  let r = cp.spawnSync('launchctl', ['bootstrap', `gui/${uid}`, file], { encoding: 'utf8' });
+  if (r.status !== 0) {
+    cp.spawnSync('launchctl', ['unload', file], { stdio: 'ignore' });
+    r = cp.spawnSync('launchctl', ['load', '-w', file], { encoding: 'utf8' });
+  }
+  return { path: file, ok: r.status === 0, output: (r.stderr || r.stdout || '').trim() };
+}
+
+function uninstall(ctx) {
+  const file = plistPath(ctx);
+  const uid = process.getuid ? process.getuid() : 0;
+  let r = cp.spawnSync('launchctl', ['bootout', `gui/${uid}/${ctx.label}`], { encoding: 'utf8' });
+  if (r.status !== 0) {
+    cp.spawnSync('launchctl', ['unload', '-w', file], { stdio: 'ignore' });
+  }
+  let removed = false;
+  try { fs.unlinkSync(file); removed = true; } catch (_) {}
+  return { path: file, ok: true, removed };
+}
+
+// Best-effort parse of `launchctl print` human output, which Apple reshapes
+// across macOS versions. Treat the service as running if it self-reports
+// `state = running` OR exposes a live `pid = <number>` line — a real pid means
+// the process is up even when the state wording has changed.
+function parseRunning(stdout) {
+  const s = stdout || '';
+  return /state = running/.test(s) || /\bpid = \d+/.test(s);
+}
+
+function status(ctx) {
+  const file = plistPath(ctx);
+  const installed = fs.existsSync(file);
+  const uid = process.getuid ? process.getuid() : 0;
+  const r = cp.spawnSync('launchctl', ['print', `gui/${uid}/${ctx.label}`], { encoding: 'utf8' });
+  const running = r.status === 0 && parseRunning(r.stdout);
+  return { platform: 'launchd', installed, running, path: file };
+}
+
+function escapeXml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+module.exports = { render, install, uninstall, status, plistPath, parseRunning };

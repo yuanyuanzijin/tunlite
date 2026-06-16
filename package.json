@@ -1,0 +1,44 @@
+{
+  "name": "tunlite",
+  "version": "0.9.0",
+  "description": "Lightweight cross-platform SSH tunnel manager with auto-reconnect, OS autostart, and passwordless setup.",
+  "type": "commonjs",
+  "bin": {
+    "tunlite": "bin/tunlite.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "skill/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "start": "node bin/tunlite.js daemon run"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "preferGlobal": true,
+  "keywords": [
+    "ssh",
+    "tunnel",
+    "port-forward",
+    "socks",
+    "autossh",
+    "reconnect",
+    "cli"
+  ],
+  "author": "yuanyuanzijin <yuanyuanzijin@users.noreply.github.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuanyuanzijin/tunlite.git"
+  },
+  "homepage": "https://github.com/yuanyuanzijin/tunlite",
+  "bugs": {
+    "url": "https://github.com/yuanyuanzijin/tunlite/issues"
+  },
+  "dependencies": {}
+}

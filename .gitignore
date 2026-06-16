@@ -1,0 +1,14 @@
+node_modules/
+*.log
+.DS_Store
+/tmp/
+*.tgz
+/.tunlite-dev/
+/.upload/
+
+# local tooling / private design docs — kept on disk, not part of the public repo
+/.claude/
+/docs/superpowers/
+/docs/VALIDATION.md
+/tl
+/CLAUDE.md
