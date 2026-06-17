@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/yuanyuanzijin/tunlite/actions/workflows/ci.yml/badge.svg)](https://github.com/yuanyuanzijin/tunlite/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/tunlite)](https://www.npmjs.com/package/tunlite)
+[![downloads](https://img.shields.io/npm/dm/tunlite)](https://www.npmjs.com/package/tunlite)
 [![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -13,6 +14,8 @@ named tunnels once; a tiny **zero-dependency** daemon keeps them connected, rest
 them at login, and sets up passwordless access. Every command speaks **`--json`** with
 stable exit codes, so **AI agents drive it as easily as you do**.
 
+<p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/demo.gif" alt="define a tunnel, the daemon brings it up, check status, tail logs" width="760"></p>
+
 > 📖 **Full documentation → [yuanyuanzijin.github.io/tunlite](https://yuanyuanzijin.github.io/tunlite/)**
 
 - **Agent-native** — `--json` on every command, stable exit codes, a bundled agent skill.
@@ -21,6 +24,11 @@ stable exit codes, so **AI agents drive it as easily as you do**.
 - **Start at login** — launchd (macOS) / systemd user service (Linux) / Task Scheduler (Windows — beta).
 - **Passwordless setup** — connects directly if keys already work; installs your key only if needed.
 - **Three forward types** — local `-L`, remote `-R`, dynamic SOCKS `-D`.
+
+`tunlite monitor` gives you a live, top-style dashboard — every tunnel's state at a
+glance, with the daemon auto-reconnecting a dropped one in front of you:
+
+<p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/monitor.gif" alt="tunlite monitor — live dashboard with auto-reconnect and per-tunnel detail" width="760"></p>
 
 ## Why tunlite?
 

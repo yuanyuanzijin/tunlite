@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/yuanyuanzijin/tunlite/actions/workflows/ci.yml/badge.svg)](https://github.com/yuanyuanzijin/tunlite/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/tunlite)](https://www.npmjs.com/package/tunlite)
+[![downloads](https://img.shields.io/npm/dm/tunlite)](https://www.npmjs.com/package/tunlite)
 [![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -11,6 +12,8 @@
 *autossh + 每条隧道一个 systemd 单元 + 一堆记不住的 `-L`/`-R`/`-D`*。一次定义命名隧道,
 一个**零依赖**的小守护进程保持它们连接、开机自启、并帮你打通免密。每个命令都讲
 **`--json`** 和稳定退出码,所以 **AI agent 用起来和你一样顺手**。
+
+<p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/demo.gif" alt="定义隧道、守护进程自动拉起、查看状态、跟踪日志" width="760"></p>
 
 > 📖 **完整文档 → [yuanyuanzijin.github.io/tunlite](https://yuanyuanzijin.github.io/tunlite/)**
 
@@ -20,6 +23,11 @@
 - **开机自启** —— launchd(macOS)/ systemd 用户服务(Linux)/ 计划任务(Windows,beta)。
 - **免密打通** —— 已能免密则直连;只在需要时帮你装公钥。
 - **三种转发** —— 本地 `-L`、远程 `-R`、动态 SOCKS `-D`。
+
+`tunlite monitor` 提供一个实时的 top 式面板 —— 一眼看清每条隧道的状态,守护进程会在你
+眼前把掉线的那条自动重连回来:
+
+<p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/monitor.gif" alt="tunlite monitor —— 实时面板,自动重连与单隧道详情" width="760"></p>
 
 ## 为什么用 tunlite?
 
