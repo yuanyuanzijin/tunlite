@@ -294,6 +294,17 @@ test('uninstall without --purge keeps config', async (t) => {
   assert.ok(fsmod.existsSync(cfgDir), 'config dir should remain without --purge');
 });
 
+test('uninstall --force is accepted (no usage error) and completes the teardown', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  let c = capture();
+  await tunlite(c.io, 'add', 'dynamic', 'web', '--to', 'me@host', '--local', '1080');
+  c = capture();
+  const code = await tunlite(c.io, 'uninstall', '--force'); // --force must be a known flag, not exit 2
+  assert.equal(code, 0);
+  assert.match(c.out(), /tunlite removed/);
+});
+
 test('check reflects passwordless probe via exit code', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
@@ -389,7 +400,7 @@ test('update refuses to self-update from a source checkout', async (t) => {
   assert.equal(code, 0);
   const res = JSON.parse(c.out());
   assert.equal(res.action, 'refused');
-  assert.equal(res.reason, 'source-checkout');
+  assert.equal(res.reason, 'git');
 });
 
 test('update rejects an unknown flag (exit 2)', async (t) => {

@@ -76,6 +76,32 @@ function archiveFetch(repoUrl, tag) {
   }
 }
 
+// Resolve "latest" to the newest published tag via the GitHub tags API, so a
+// self-update only ever targets a real release (never the branch tip, which
+// could be an unreleased commit npm doesn't have). Returns null when a
+// TUNLITE_ARCHIVE_URL is pinned (use that source verbatim); throws with a clear
+// hint when GitHub can't be reached or has no usable tag.
+function resolveLatestTag(repoUrl) {
+  if (process.env.TUNLITE_ARCHIVE_URL) return null; // source is pinned — don't second-guess it
+  const updateMod = require('./update');
+  const base = updateMod.httpsRepoUrl(repoUrl).replace(/\.git$/, '');
+  const m = /github\.com\/([^/]+)\/([^/]+?)$/.exec(base);
+  if (!m) throw Object.assign(new Error(`can't determine the latest release from "${base}" — pass a version: tunlite update X.Y.Z`), { exitCode: EXIT.ERROR });
+  const api = `https://api.github.com/repos/${m[1]}/${m[2]}/tags?per_page=100`;
+  const ua = 'tunlite';
+  let r = cp.spawnSync('curl', ['-fsSL', '-H', `User-Agent: ${ua}`, '-H', 'Accept: application/vnd.github+json', api], { encoding: 'utf8' });
+  if (r.error || r.status !== 0) {
+    r = cp.spawnSync('wget', ['-qO-', `--header=User-Agent: ${ua}`, '--header=Accept: application/vnd.github+json', api], { encoding: 'utf8' });
+    if (r.error || r.status !== 0) throw Object.assign(new Error('could not reach GitHub to find the latest release — check your connection or pass a version: tunlite update X.Y.Z'), { exitCode: EXIT.ERROR });
+  }
+  let names;
+  try { names = JSON.parse(r.stdout).map((t) => t && t.name).filter(Boolean); }
+  catch (_) { throw Object.assign(new Error('unexpected response from the GitHub tags API'), { exitCode: EXIT.ERROR }); }
+  const tag = updateMod.pickLatestTag(names);
+  if (!tag) throw Object.assign(new Error('no published release found to update to'), { exitCode: EXIT.ERROR });
+  return tag;
+}
+
 // Restart the daemon PROCESS so it loads new code (distinct from commands.restart,
 // which restarts tunnels in the running daemon). Service-aware: with the OS
 // service installed, KeepAlive relaunches it; otherwise spawn a fresh one.
@@ -102,9 +128,15 @@ async function restartDaemonProcess(io) {
 
 function renderUpdate(io, res) {
   switch (res.action) {
-    case 'refused':
-      line(io, 'running from a source checkout — not self-updating. Update with git, then re-run `tunlite install`');
+    case 'refused': {
+      const how = {
+        git: 'this is a git checkout — update with `git pull`, then re-run `tunlite install`',
+        'npm-global': 'tunlite was installed globally with npm — update with `npm i -g tunlite@latest` (or `npx tunlite@latest install`)',
+        unmanaged: 'this is not an anchored install — (re)install with `npx tunlite install`',
+      }[res.reason] || 'not an anchored install — (re)install with `npx tunlite install`';
+      line(io, `not self-updating: ${how}`);
       return;
+    }
     case 'check':
       line(io, `current ${res.current}, ${res.explicit ? 'requested' : 'latest'} ${res.target} — ${res.available ? 'would update' : 'up to date'}`);
       return;
@@ -127,4 +159,4 @@ function renderUpdate(io, res) {
   }
 }
 
-module.exports = { daemonPing, ensureDaemon, archiveFetch, restartDaemonProcess, renderUpdate };
+module.exports = { daemonPing, ensureDaemon, archiveFetch, resolveLatestTag, restartDaemonProcess, renderUpdate };

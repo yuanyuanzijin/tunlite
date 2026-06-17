@@ -14,7 +14,7 @@ const monitormod = require('./monitor');
 const completionmod = require('./completion');
 const doctormod = require('./doctor');
 const { EXIT, parseFlags, jsonOut, line, errline, isInteractive, printDaemonDown, pad } = require('./cli-core');
-const { daemonPing, ensureDaemon, archiveFetch, restartDaemonProcess, renderUpdate } = require('./daemon-control');
+const { daemonPing, ensureDaemon, archiveFetch, resolveLatestTag, restartDaemonProcess, renderUpdate } = require('./daemon-control');
 const { selectTunnels, tunnelsByTag, resolveSelection, reloadIfRunning } = require('./selection');
 const forwardCmd = require('./commands/forward');
 const { buildForward } = forwardCmd;
@@ -540,6 +540,7 @@ const commands = {
       currentVersion: VERSION,
       detectMethod: () => updateMod.detectInstallMethod(installRoot),
       fetch: (tag) => archiveFetch(repoUrl, tag),
+      resolveLatestTag: () => resolveLatestTag(repoUrl),
       readVersion: (dir) => JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version,
       anchor: (dir) => { const m = installer.readManifest() || {}; installer.anchor({ src: dir, libDir: m.libDir, binDir: m.binDir }); },
       restartDaemon: () => restartDaemonProcess(io),
@@ -703,7 +704,7 @@ INSTALL
   install service                                         add just the autostart service
   install skill [--dir user|cwd|<path>]                   add just the agent skill
   install completion [bash|zsh|fish]                      enable tab-completion (auto-detects your shell)
-  uninstall [service|skill|completion] [--purge]          remove (no target = everything)
+  uninstall [service|skill|completion] [--purge] [--force] remove (no target = everything; confirms first, --force skips)
 
 UPDATE
   update [version]   upgrade to latest (or a tag, e.g. v0.1.0), then restart the daemon

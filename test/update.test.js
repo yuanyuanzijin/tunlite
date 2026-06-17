@@ -25,14 +25,22 @@ test('normalizeTag: empty -> undefined, adds v, validates X.Y.Z', () => {
   assert.throws(() => u.normalizeTag('1.2.3.4'));
 });
 
-test('detectInstallMethod: marker -> installed, .git -> source, else source', () => {
+test('detectInstallMethod: marker -> installed, .git -> git, bare -> unmanaged', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tunlite-det-'));
-  assert.equal(u.detectInstallMethod(root), 'source');               // bare dir
+  assert.equal(u.detectInstallMethod(root), 'unmanaged');            // bare dir
   fs.writeFileSync(path.join(root, '.tunlite-install'), 'x');
-  assert.equal(u.detectInstallMethod(root), 'installed');            // marker
+  assert.equal(u.detectInstallMethod(root), 'installed');            // marker wins
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'tunlite-git-'));
   fs.mkdirSync(path.join(repo, '.git'));
-  assert.equal(u.detectInstallMethod(repo), 'source');               // dev checkout
+  assert.equal(u.detectInstallMethod(repo), 'git');                  // dev checkout
+});
+
+test('pickLatestTag: highest semver, ignores non-semver, null when none', () => {
+  assert.equal(u.pickLatestTag(['v0.9.0', 'v0.9.2', 'v0.9.1']), 'v0.9.2');
+  assert.equal(u.pickLatestTag(['0.9.9', 'v0.10.0', 'v0.9.0']), 'v0.10.0'); // 10 > 9, not lexicographic
+  assert.equal(u.pickLatestTag(['nightly', 'latest', 'v1.2.3']), 'v1.2.3');
+  assert.equal(u.pickLatestTag(['main', 'dev']), null);
+  assert.equal(u.pickLatestTag([]), null);
 });
 
 test('runUpdate: installed + newer -> fetch, anchor, restart; never npm install -g <folder>', async () => {
@@ -136,15 +144,45 @@ test('runUpdate: --no-restart anchors but does not bounce the daemon', async () 
   assert.equal(calls.restart, 0);
 });
 
-test('runUpdate: source checkout refuses, touches nothing', async () => {
+test('runUpdate: a non-anchored install refuses, touches nothing (reason = method)', async () => {
+  for (const method of ['git', 'npm-global', 'unmanaged']) {
+    const { deps, calls } = makeDeps({
+      detectMethod: () => method,
+      fetch: async () => { throw new Error('should not fetch'); },
+    });
+    const res = await u.runUpdate({}, deps);
+    assert.equal(res.action, 'refused');
+    assert.equal(res.reason, method);
+    assert.equal(calls.anchor.length, 0);
+  }
+});
+
+test('runUpdate: latest resolves the newest tag and fetches THAT, not the branch', async () => {
   const { deps, calls } = makeDeps({
-    detectMethod: () => 'source',
-    fetch: async () => { throw new Error('should not fetch'); },
+    readVersion: () => '0.9.3',
+    resolveLatestTag: async () => 'v0.9.3',
   });
+  const res = await u.runUpdate({}, deps); // no explicit version => latest
+  assert.equal(res.action, 'updated');
+  assert.equal(calls.fetch[0].tag, 'v0.9.3'); // fetched the resolved tag, not undefined (master)
+});
+
+test('runUpdate: an explicit version skips tag resolution', async () => {
+  let resolved = 0;
+  const { deps, calls } = makeDeps({
+    readVersion: () => '0.1.1',
+    resolveLatestTag: async () => { resolved++; return 'v9.9.9'; },
+  });
+  await u.runUpdate({ version: 'v0.1.1' }, deps);
+  assert.equal(resolved, 0, 'explicit version must not call resolveLatestTag');
+  assert.equal(calls.fetch[0].tag, 'v0.1.1');
+});
+
+test('runUpdate: resolveLatestTag -> null falls back to the default source', async () => {
+  const { deps, calls } = makeDeps({ resolveLatestTag: async () => null });
   const res = await u.runUpdate({}, deps);
-  assert.equal(res.action, 'refused');
-  assert.equal(res.reason, 'source-checkout');
-  assert.equal(calls.anchor.length, 0);
+  assert.equal(res.action, 'updated');
+  assert.equal(calls.fetch[0].tag, null); // fetch(null) => archiveFetch uses env/master
 });
 
 test('runUpdate: fetch failure does not anchor or restart', async () => {

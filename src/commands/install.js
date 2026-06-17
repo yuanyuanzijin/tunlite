@@ -167,10 +167,34 @@ async function uninstall(args, io, opts) {
   if (sub === 'skill') return skill(['uninstall', ...args.slice(1)], io, opts);
   if (sub === 'completion') return completionUninstall(args.slice(1), io, opts);
 
-  const { flags } = parseFlags(args, { bool: ['--purge', '--yes', '-y'] });
+  const { flags } = parseFlags(args, { bool: ['--purge', '--yes', '-y', '--force'] });
   const steps = [];
 
   const ping = await daemonPing();
+
+  // Confirm before tearing everything down. --force / --yes (and --json or a
+  // non-interactive shell) skip the prompt; an interactive run must confirm and
+  // is warned when tunnels are currently up, so it's never a silent footgun.
+  const force = flags['--force'] || flags['--yes'] || flags['-y'];
+  if (!force && !opts.json && canPrompt()) {
+    let note = '';
+    if (ping) {
+      let up = 0;
+      try {
+        const rows = await ipc.request(paths.socketPath(), 'status', {});
+        up = (rows || []).filter((r) => ['connected', 'starting', 'retrying', 'needs-auth'].includes(r.state)).length;
+      } catch (_) { /* daemon vanished mid-call — fall back to the generic note */ }
+      note = up > 0
+        ? `\n  ⚠ ${up} tunnel${up === 1 ? ' is' : 's are'} currently up — this stops ${up === 1 ? 'it' : 'them'}.`
+        : '\n  the daemon is running and will be stopped.';
+    }
+    const what = `stops the daemon and removes autostart, the launcher, the agent skill, and shell completion${flags['--purge'] ? ', plus your config + state' : ''}`;
+    if (!(await confirm(io, `Uninstall tunlite? This ${what}.${note}\nProceed? [y/N] `))) {
+      line(io, 'uninstall cancelled.');
+      return EXIT.OK;
+    }
+  }
+
   if (ping) {
     try { await ipc.request(paths.socketPath(), 'shutdown', {}); steps.push('stopped daemon'); }
     catch (_) { steps.push('daemon stop failed (ignored)'); }

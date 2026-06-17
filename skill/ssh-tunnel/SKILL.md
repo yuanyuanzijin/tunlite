@@ -101,6 +101,9 @@ tunlite uninstall --json           # full teardown: stop daemon + remove service
 tunlite uninstall --purge --json   # also delete config + logs
 ```
 
+A bare interactive `tunlite uninstall` asks to confirm (and warns if tunnels are
+up). `--json` already skips that prompt; `--force` skips it without `--json`.
+
 The OS keeps the **daemon** alive; the daemon keeps the **tunnels** alive and
 reconciles from the config on every (re)start, so enabled tunnels resume after
 reboot/login.
