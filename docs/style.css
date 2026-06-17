@@ -268,7 +268,7 @@ footer { border-top: 1px solid var(--line-soft); padding: 44px 0 56px; margin-to
 /* =========================================================================
    LANDING PAGE
    ========================================================================= */
-.hero { padding: 88px 0 60px; position: relative; }
+.hero { padding: 88px 0 60px; position: relative; overflow-x: clip; }
 .hero-glow {
   position: absolute;
   top: -40px; left: 50%;
@@ -321,6 +321,13 @@ h1.title .accent { color: var(--accent); }
 }
 .lede b { color: var(--text); font-weight: 600; }
 .lede i { color: var(--faint); font-style: italic; }
+
+/* mobile: reclaim a little width + dial down the oversized hero type */
+@media (max-width: 560px) {
+  .wrap, .foot-in, .foot-meta { padding-left: 18px; padding-right: 18px; }
+  h1.title { font-size: 34px; letter-spacing: -1px; }
+  .lede { font-size: 15.5px; }
+}
 
 .hero-meta {
   margin-top: 18px;
