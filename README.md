@@ -1,4 +1,6 @@
-# tunlite
+# Tunlite
+
+> **SSH tunnels, kept alive** — declarative, auto-reconnecting, and agent-native.
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -16,7 +18,7 @@ stable exit codes, so **AI agents drive it as easily as you do**.
 
 <p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/demo.gif" alt="define a tunnel, the daemon brings it up, check status, tail logs" width="760"></p>
 
-> 📖 **Full documentation → [yuanyuanzijin.github.io/tunlite](https://yuanyuanzijin.github.io/tunlite/)**
+> 📖 **Full documentation → [tunlite.dev](https://tunlite.dev/)**
 
 - **Agent-native** — `--json` on every command, stable exit codes, a bundled agent skill.
 - **Zero third-party dependencies** — pure Node.js standard library; all it needs on the box is **Node ≥ 18** and the system `ssh` it wraps.
@@ -123,7 +125,7 @@ update                     self-update from GitHub
 ```
 
 Run `tunlite help` or any command with `--help` for full flags, or see the
-[documentation](https://yuanyuanzijin.github.io/tunlite/) for jump hosts (`--jump`),
+[documentation](https://tunlite.dev/) for jump hosts (`--jump`),
 tags (`--tag`), the webhook channels/events, and shell completion.
 
 **Forwarding model:** each `add` defines one forward (a tunnel can carry several via

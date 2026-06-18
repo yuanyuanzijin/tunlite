@@ -63,6 +63,15 @@
     reveal.forEach(function (el) { el.classList.add('in'); });
   }
 
+  /* ---- footer version: always reflect the latest published npm release ---- */
+  var ver = document.getElementById('ver');
+  if (ver && window.fetch) {
+    fetch('https://registry.npmjs.org/tunlite/latest')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.version) ver.textContent = 'v' + d.version; })
+      .catch(function () {});
+  }
+
   /* ---- docs sidebar: scroll-spy + mobile collapse ---- */
   var sidebar = document.querySelector('.sidebar');
   if (sidebar) {

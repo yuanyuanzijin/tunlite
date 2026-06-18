@@ -476,8 +476,8 @@ h1.title .accent { color: var(--accent); }
   border-radius: 11px;
   padding: 18px 20px;
   margin: 0;
-  overflow-x: auto;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .start-pre .c { color: var(--accent); }
 .start-pre .h { color: var(--faint); }

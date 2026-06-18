@@ -1,4 +1,6 @@
-# tunlite
+# Tunlite
+
+> **让 SSH 隧道一直在线** —— 声明式配置、自动重连、对 AI agent 友好。
 
 [English](README.md) · **简体中文**
 
@@ -15,7 +17,7 @@
 
 <p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/demo.gif" alt="定义隧道、守护进程自动拉起、查看状态、跟踪日志" width="760"></p>
 
-> 📖 **完整文档 → [yuanyuanzijin.github.io/tunlite](https://yuanyuanzijin.github.io/tunlite/)**
+> 📖 **完整文档 → [tunlite.dev](https://tunlite.dev/)**
 
 - **面向 agent** —— 每个命令都支持 `--json`、退出码稳定,并自带一个 agent skill。
 - **零第三方依赖** —— 纯 Node.js 标准库;机器上只需 **Node ≥ 18** 和它封装的系统 `ssh`。
@@ -117,7 +119,7 @@ update                     从 GitHub 自更新
 
 完整参数跑 `tunlite help` 或给任意命令加 `--help`;跳板机(`--jump`)、标签(`--tag`)、
 webhook 的 channel/事件、shell 补全等细节见
-[文档站](https://yuanyuanzijin.github.io/tunlite/)。
+[文档站](https://tunlite.dev/)。
 
 **转发模型:**每个 `add` 定义一个转发(一条隧道可用 `forward add` 携带多个)。`--local`
 永远指**你这侧**、`--remote` 永远指**服务器侧**,由子命令决定谁监听 —— `local`(在本地访问
