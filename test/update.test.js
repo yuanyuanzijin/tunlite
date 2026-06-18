@@ -242,6 +242,31 @@ test('archiveFetch extracts a file:// tarball to a dir with bin/tunlite.js + pac
   }
 });
 
+test('archiveFetch handles an archive larger than spawnSync default maxBuffer (1 MB)', () => {
+  // Regression for the Critical bug where the fetcher captured the tarball into a
+  // 1 MB-default stdout buffer: once the GitHub repo archive (docs/recordings/…)
+  // crossed 1 MB, curl was SIGTERM'd with ENOBUFS and update died with a bogus
+  // "need curl or wget". An ~2 MB incompressible payload keeps the .tgz over 1 MB.
+  const big = require('crypto').randomBytes(2 * 1024 * 1024).toString('base64');
+  const tgz = makeFixtureTgz({
+    'bin/tunlite.js': '#!/usr/bin/env node\nconsole.log("v");\n',
+    'package.json': '{"name":"tunlite","version":"4.5.6"}\n',
+    'docs/blob.bin': big,
+  });
+  assert.ok(fs.statSync(tgz).size > 1024 * 1024, 'fixture tarball must exceed the old 1 MB limit');
+  const prev = process.env.TUNLITE_ARCHIVE_URL;
+  process.env.TUNLITE_ARCHIVE_URL = 'file://' + tgz;
+  let dir;
+  try {
+    dir = cli.archiveFetch('https://example.invalid/x.git', undefined);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version, '4.5.6');
+    assert.ok(!fs.existsSync(path.join(dir, 'archive.tar.gz')), 'downloaded archive is cleaned up');
+  } finally {
+    if (prev === undefined) delete process.env.TUNLITE_ARCHIVE_URL; else process.env.TUNLITE_ARCHIVE_URL = prev;
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('archiveFetch refuses an insecure (http) archive URL', () => {
   const prev = process.env.TUNLITE_ARCHIVE_URL;
   process.env.TUNLITE_ARCHIVE_URL = 'http://mirror.invalid/x.tar.gz';

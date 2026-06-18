@@ -60,15 +60,33 @@ function archiveFetch(repoUrl, tag) {
     );
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tunlite-update-'));
+  const tgz = path.join(dir, 'archive.tar.gz');
   try {
-    const fetcher = ['curl', '-fsSL', url];
-    let r = cp.spawnSync(fetcher[0], fetcher.slice(1), { encoding: 'buffer' });
-    if (r.error || r.status !== 0) {
-      r = cp.spawnSync('wget', ['-qO-', url], { encoding: 'buffer' });
-      if (r.error || r.status !== 0) throw new Error(`could not fetch ${url} (need curl or wget)`);
+    // Download to a FILE, never a captured stdout buffer. The GitHub archive is
+    // the whole repo (docs, recordings, tests, …) and can exceed spawnSync's 1 MB
+    // default maxBuffer, which SIGTERMs the fetcher with ENOBUFS — surfacing as a
+    // bogus "need curl or wget" even though both are installed and reachable.
+    const tools = [
+      ['curl', ['-fsSL', '-o', tgz, url]],
+      ['wget', ['-q', '-O', tgz, url]],
+    ];
+    let ok = false;
+    let detail = ''; // last real failure (absent tools are skipped, not reported)
+    for (const [bin, args] of tools) {
+      const r = cp.spawnSync(bin, args, { encoding: 'utf8' });
+      if (r.error && r.error.code === 'ENOENT') continue; // tool not installed — try the next
+      if (!r.error && r.status === 0) { ok = true; break; }
+      detail = ((r.stderr && r.stderr.trim()) || (r.error && r.error.message) || `${bin} exited ${r.status}`);
     }
-    const tar = cp.spawnSync('tar', ['xz', '--strip-components=1', '-C', dir], { input: r.stdout });
+    if (!ok) {
+      throw Object.assign(
+        new Error(detail ? `could not download ${url} — ${detail}` : `could not download ${url} (need curl or wget)`),
+        { exitCode: EXIT.ERROR },
+      );
+    }
+    const tar = cp.spawnSync('tar', ['xz', '--strip-components=1', '-C', dir, '-f', tgz], { encoding: 'utf8' });
     if (tar.error || tar.status !== 0) throw new Error('failed to extract update tarball (need tar)');
+    fs.rmSync(tgz, { force: true }); // drop the archive so only the unpacked tree remains
     return dir;
   } catch (e) {
     fs.rmSync(dir, { recursive: true, force: true });

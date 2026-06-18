@@ -9,6 +9,21 @@ release process.
 > tunlite debuted publicly at **0.9.0**. Earlier `0.x` releases were a private
 > prototype and are not part of this public history.
 
+## [0.9.5] - 2026-06-18
+
+### Fixed
+- **`tunlite update` no longer fails with a bogus `could not fetch … (need curl
+  or wget)` once the repository archive grows past ~1 MB.** The fetcher captured
+  the tarball into `spawnSync`'s 1 MB-default stdout buffer, so a larger archive
+  overflowed it (`ENOBUFS`, the fetcher killed with `SIGTERM`) and surfaced as a
+  missing-tool error even though curl/wget were installed and the download was
+  reachable. It now downloads to a file (no in-memory buffer, any size) and the
+  error message distinguishes a genuinely absent tool from a failed download,
+  including the fetcher's own stderr.
+  - Already on 0.9.4 or earlier? That broken `update` can't pull this fix itself —
+    re-install once with `npx tunlite@latest install`; subsequent `tunlite update`
+    runs then work normally.
+
 ## [0.9.4] - 2026-06-18
 
 ### Fixed
