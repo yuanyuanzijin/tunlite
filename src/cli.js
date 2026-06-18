@@ -92,7 +92,18 @@ const commands = {
       autoSetupKey: !flags['--no-auto-key'],
     };
     const cfg = config.load(opts.configFile);
-    const v = config.upsertTunnel(cfg, tunnel);
+    // Refuse to clobber an existing tunnel. `add` used to upsert, so re-adding a
+    // name silently overwrote the prior definition (exit 0, data loss); steer to
+    // `set` (change in place) or `rm` first — mirrors rename's conflict guard.
+    if (config.findTunnel(cfg, name)) {
+      errline(io, `a tunnel named "${name}" already exists (use \`tunlite set ${name} ...\` to change it, or \`tunlite rm ${name}\` first)`);
+      return EXIT.USAGE;
+    }
+    // The name is validated inside upsertTunnel; a bad name is a usage error (2),
+    // not an uncaught throw bubbling up as a generic error (1) — matches rename.
+    let v;
+    try { v = config.upsertTunnel(cfg, tunnel); }
+    catch (e) { errline(io, e.message); return EXIT.USAGE; }
     config.save(cfg, opts.configFile);
     const reloaded = await reloadIfRunning();
     if (opts.json) { jsonOut(io, { ...v, daemonRunning: reloaded }); return EXIT.OK; }
@@ -186,11 +197,17 @@ const commands = {
     let tags;
     try { tags = config.parseTags(flags['--tag']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
     const tunnels = tags.length ? tunnelsByTag(cfg, tags) : cfg.tunnels;
+    // An explicit --tag that matches nothing is not-found (3), consistent with
+    // up/down/restart/status (the documented tag contract).
+    if (tags.length && tunnels.length === 0) {
+      const msg = `no tunnels tagged ${tags.map((x) => `"${x}"`).join(', ')}`;
+      if (opts.json) jsonOut(io, { error: msg, code: EXIT.NOTFOUND });
+      else errline(io, msg);
+      return EXIT.NOTFOUND;
+    }
     if (opts.json) { jsonOut(io, tunnels); return EXIT.OK; }
     if (tunnels.length === 0) {
-      line(io, tags.length
-        ? `no tunnels tagged ${tags.map((x) => `"${x}"`).join(', ')}`
-        : 'no tunnels defined. add one with: tunlite add <name> --to user@host -L ...');
+      line(io, 'no tunnels defined. add one with: tunlite add <name> --to user@host -L ...');
       return EXIT.OK;
     }
     for (const t of tunnels) {
@@ -278,6 +295,15 @@ const commands = {
     let tags;
     try { tags = config.parseTags(flags['--tag']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
     if (tags.length && name) { errline(io, 'give a tunnel name or --tag, not both'); return EXIT.USAGE; }
+    // An explicit --tag that matches nothing in config is not-found (3) — checked
+    // against config up front so the answer is the same whether or not the daemon
+    // is up (otherwise a down daemon would mask it as daemon-unreachable, 5).
+    if (tags.length && !tunnelsByTag(config.load(opts.configFile), tags).length) {
+      const msg = `no tunnels tagged ${tags.map((x) => `"${x}"`).join(', ')}`;
+      if (opts.json) jsonOut(io, { error: msg, code: EXIT.NOTFOUND });
+      else errline(io, msg);
+      return EXIT.NOTFOUND;
+    }
     // Tag selection gathers everything and filters here (the daemon status IPC
     // only knows names); a plain name still filters at the source.
     const gathered = await gatherStatus(tags.length ? undefined : name, opts);
@@ -294,13 +320,24 @@ const commands = {
     const skillRows = skillmod.readManifest().map((d) => ({ path: d, present: fs.existsSync(path.join(d, 'SKILL.md')) }));
     const skill = { installed: skillRows.some((r) => r.present), entries: skillRows };
 
+    // A named tunnel that doesn't exist is not-found in BOTH modes. The human
+    // detail path checked this below; --json returned the full snapshot with an
+    // empty tunnels[] and exit 0, so an agent doing `status <name> --json` could
+    // not tell "doesn't exist" from "exists" by exit code. Check before the json
+    // return so the contract holds in either mode. (A --tag matching nothing is
+    // an empty list, not not-found — unchanged.)
+    if (name && tunnels.length === 0) {
+      if (opts.json) jsonOut(io, { error: `no such tunnel: ${name}`, code: EXIT.NOTFOUND });
+      else errline(io, `no such tunnel: ${name}`);
+      return EXIT.NOTFOUND;
+    }
+
     if (opts.json) { jsonOut(io, { daemon, tunnels, service, skill }); return EXIT.OK; }
 
     const useColor = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
 
     // Single-tunnel vertical detail.
     if (name) {
-      if (tunnels.length === 0) { errline(io, `no such tunnel: ${name}`); return EXIT.NOTFOUND; }
       const tdet = tunnels[0];
       line(io, `${tdet.name}`);
       for (const [label, value, vcolor] of tunnelDetailRows(tdet)) {
@@ -395,6 +432,13 @@ const commands = {
   async logs(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { value: ['-n'], bool: ['-f', '--follow'] });
     const name = positionals[0];
+    // A named tunnel must exist (consistent with down/restart/rm/status); a bare
+    // `logs` with no name tails the daemon's own log. Without this guard an
+    // unknown name silently tailed an empty channel and exited 0, breaking the
+    // not-found (3) contract every other name-taking command honors.
+    if (name && !config.findTunnel(config.load(opts.configFile), name)) {
+      errline(io, `no such tunnel: ${name}`); return EXIT.NOTFOUND;
+    }
     const follow = Boolean(flags['-f'] || flags['--follow']);
     const n = flags['-n'] ? Number(flags['-n']) : 100;
     const ping = await daemonPing();
@@ -738,6 +782,14 @@ async function run(argv, io = { out: process.stdout, err: process.stderr }) {
   if (cmd === 'mon') cmd = 'monitor';
   const handler = commands[cmd];
   if (!handler) { errline(io, `unknown command: ${cmd}\nrun \`tunlite help\``); return EXIT.USAGE; }
+
+  // The README promises "any command with `--help` for full flags". Only the
+  // command position was honoring -h/--help; placed after a command (`status
+  // --help`) it fell through to the handler, which rejected it as an unknown
+  // option (or, for `export`, ran and dumped config). -h/--help aren't real
+  // flags on any command, so intercept them anywhere and show the full help.
+  const rest = args.slice(1);
+  if (rest.includes('-h') || rest.includes('--help')) { line(io, HELP); return EXIT.OK; }
 
   // Gentle nudge if running un-anchored (e.g. straight from node_modules / a
   // dev tree) — except for the commands that are about anchoring or are trivial.

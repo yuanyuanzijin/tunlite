@@ -9,6 +9,42 @@ release process.
 > tunlite debuted publicly at **0.9.0**. Earlier `0.x` releases were a private
 > prototype and are not part of this public history.
 
+## [0.9.4] - 2026-06-18
+
+### Fixed
+- **`logs <name>` now exits not-found (`3`) for an unknown tunnel** instead of
+  silently tailing an empty channel and exiting `0` — it was the only
+  name-taking command that didn't honor the not-found contract, so an agent
+  probing `tunlite logs typo --json` read it as "succeeded, no logs". A bare
+  `logs` with no name still tails the daemon's own log.
+- **`add` refuses a duplicate name (exit `2`) instead of silently overwriting.**
+  It used to upsert, so re-adding an existing name replaced the prior definition
+  and exited `0` — quiet data loss. Use `set <name> …` to change a tunnel in place
+  or `rm <name>` first. An invalid tunnel name is now a usage error (`2`) too,
+  rather than bubbling up as a generic error (`1`).
+- **`list` / `status` with a `--tag` that matches nothing now exit not-found (`3`)**,
+  matching `up`/`down`/`restart` and the documented tag contract. `list` returned
+  `0` and `status` returned `0` (daemon up) or even `5` (daemon down); the tag is
+  now checked against config up front, so the answer is a consistent `3` either way.
+  (`monitor` is a live dashboard, so it shows an empty view rather than exiting.)
+- **Anchored-install detection is now symlink-tolerant.** `isAnchored()` compared
+  the manifest's literal `libDir` against the realpath-resolved running directory,
+  so when the install dir was reached through a symlink — `/home` → `/var/home` on
+  Fedora Silverblue/CoreOS/openSUSE MicroOS, or `/tmp` → `/private/tmp` on macOS —
+  a correct install reported un-anchored forever: the "run `tunlite install`" nudge
+  never cleared and `tunlite update` refused to self-update. It now compares
+  canonical paths on both sides.
+- **`status <name> --json` now exits not-found (`3`) for an unknown tunnel**,
+  matching the human path. It returned the full snapshot with an empty
+  `tunnels[]` and exit `0`, so an agent couldn't tell "doesn't exist" from
+  "exists" by exit code; it now emits `{error, code: 3}` and exits `3`.
+- **`<command> --help` / `-h` now prints help and exits `0` for every command**,
+  as the README promises. Previously only the bare command position honored it;
+  placed after a verb (`tunlite status --help`) it fell through and was rejected
+  as an unknown option — and `tunlite export --help` ignored the flag and dumped
+  the config. `-h`/`--help` are not real flags on any command, so they are now
+  intercepted globally.
+
 ## [0.9.3] - 2026-06-17
 
 ### Added

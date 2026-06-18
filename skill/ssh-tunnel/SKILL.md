@@ -168,7 +168,9 @@ and leaves the current config untouched.
 - Tags group tunnels: `--tag <label>` (repeatable) on `add`/`set` labels a tunnel
   (`set --no-tags` clears); `up`/`down`/`restart`/`status`/`list`/`monitor` accept
   `--tag <label>` to act on every tunnel carrying it (multiple `--tag` = union). A
-  name and `--tag` are mutually exclusive (exit 2); a tag that matches nothing exits 3.
+  name and `--tag` are mutually exclusive (exit 2); for the one-shot commands
+  (`up`/`down`/`restart`/`status`/`list`) a tag that matches nothing exits 3
+  (`monitor` is a live view, so it just shows an empty dashboard instead).
   Tags are metadata only — they never change the ssh command. Each tunnel's
   `tags` array is in `list --json` / `status --json`.
 - Forwards: `add local <name> --to user@host --remote [host:]P [--local [host:]P]`

@@ -179,7 +179,15 @@ function isAnchored(opts = {}) {
   const m = readManifest(opts);
   if (!m || !m.libDir) return false;
   const here = path.resolve(opts.dir || path.join(__dirname, '..'));
-  return path.resolve(m.libDir) === here;
+  // Compare canonical (symlink-resolved) paths. Node realpaths a module's
+  // __dirname, so `here` is already canonical, but the manifest stores the
+  // literal libDir — they differ whenever libDir is reached through a symlink
+  // (e.g. /home -> /var/home on Fedora Silverblue/CoreOS, or /tmp -> /private/tmp
+  // on macOS). Without this a correct install reports un-anchored forever — the
+  // nudge never clears and `update` refuses to self-update. realpathSync throws
+  // on a missing path, so fall back to the literal for stale/absent dirs.
+  const canon = (p) => { try { return fs.realpathSync(p); } catch (_) { return path.resolve(p); } };
+  return canon(m.libDir) === canon(here);
 }
 
 // Best-effort: converge to one install by removing a prior npm-global `tunlite`

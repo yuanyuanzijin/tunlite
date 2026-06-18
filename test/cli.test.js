@@ -219,8 +219,8 @@ test('tags: add/set manage labels; --tag filters and selects (no daemon)', async
   // list --tag filters (union); plain list shows tags inline
   assert.deepEqual((await json('list', '--tag', 'work', '--json')).map((r) => r.name).sort(), ['a', 'b']);
   assert.match(await out('list'), /\[work\]/);
-  assert.equal(await tunlite(capture().io, 'list', '--tag', 'nope'), 0); // empty filter is not an error
-  assert.match(await out('list', '--tag', 'nope'), /no tunnels tagged "nope"/);
+  assert.equal(await tunlite(capture().io, 'list', '--tag', 'nope'), 3); // tag-no-match is not-found (like up/down/restart/status)
+  { const c = capture(); await tunlite(c.io, 'list', '--tag', 'nope'); assert.match(c.err(), /no tunnels tagged "nope"/); }
 
   // status --tag filters to the matching set
   assert.deepEqual((await json('status', '--tag', 'prod', '--json')).tunnels.map((r) => r.name), ['c']);
@@ -234,6 +234,14 @@ test('tags: add/set manage labels; --tag filters and selects (no daemon)', async
   // name AND --tag -> usage (2); --tag with no match -> not-found (3)
   assert.equal(await tunlite(capture().io, 'down', 'c', '--tag', 'prod'), 2);
   assert.equal(await tunlite(capture().io, 'down', '--tag', 'nope'), 3);
+
+  // the same tag-no-match contract holds for the other one-shot selectors
+  assert.equal(await tunlite(capture().io, 'list', '--tag', 'nope'), 3, 'list --tag <no-match>');
+  assert.equal(await tunlite(capture().io, 'list', '--tag', 'nope', '--json'), 3, 'list --tag <no-match> --json');
+  assert.equal(await tunlite(capture().io, 'status', '--tag', 'nope'), 3, 'status --tag <no-match> (daemon down)');
+  assert.equal(await tunlite(capture().io, 'status', '--tag', 'nope', '--json'), 3, 'status --tag <no-match> --json (daemon down)');
+  // a tag that DOES match still succeeds (not swept up by the guard)
+  assert.equal(await tunlite(capture().io, 'list', '--tag', 'prod'), 0);
 });
 
 test('up --tag brings up every tunnel carrying that label', async (t) => {
@@ -358,6 +366,30 @@ test('add rejects an invalid SSH port in --to (exit 2), no silent fallback to 22
   const c = capture();
   await tunlite(c.io, 'list');
   assert.doesNotMatch(c.out(), /web/);
+});
+
+test('add refuses a duplicate name (exit 2) instead of silently overwriting', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  assert.equal(await tunlite(capture().io, 'add', 'local', 'dup', '--to', 'me@h1', '--remote', '80', '--local', '8001'), 0);
+  const c = capture();
+  const code = await tunlite(c.io, 'add', 'local', 'dup', '--to', 'me@h2', '--remote', '90', '--local', '9001');
+  assert.equal(code, 2, 'a duplicate name is a usage error, not exit 0');
+  assert.match(c.err(), /already exists/);
+  // the original definition is intact (not clobbered)
+  const j = capture();
+  await tunlite(j.io, 'status', 'dup', '--json');
+  const o = JSON.parse(j.out());
+  assert.equal(o.tunnels[0].host, 'me@h1', 'original host preserved');
+});
+
+test('add rejects an invalid tunnel name with a usage error (exit 2), not a generic error (1)', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  const c = capture();
+  const code = await tunlite(c.io, 'add', 'local', 'bad name', '--to', 'me@h', '--remote', '80', '--local', '8002');
+  assert.equal(code, 2);
+  assert.match(c.err(), /invalid tunnel name/);
 });
 
 test('add accepts a valid non-default SSH port via --to host:port', async (t) => {
@@ -758,6 +790,17 @@ test('status <unknown> exits NOTFOUND', async (t) => {
   assert.match(c.err(), /no such tunnel/);
 });
 
+test('status <unknown> --json also exits NOTFOUND (not 0 with an empty list)', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  const c = capture();
+  const code = await tunlite(c.io, 'status', 'nope', '--json');
+  assert.equal(code, 3); // matches the human path; agent can branch on exit code
+  const obj = JSON.parse(c.out());
+  assert.match(obj.error, /no such tunnel/);
+  assert.equal(obj.code, 3);
+});
+
 test('status --json shape is unchanged (daemon/tunnels/service/skill)', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
@@ -906,6 +949,26 @@ test('webhook set/status redact the url in both human and --json output', async 
   assert.equal(cfg.settings.alerts.webhook.url, SECRET_URL);
 });
 
+test('<cmd> --help / -h prints help and exits 0 (README promises it for any command)', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  // A spread across plain verbs, group verbs, and the one that used to run
+  // anyway (export dumped config instead of helping).
+  for (const cmd of ['status', 'up', 'logs', 'export', 'webhook', 'install', 'update', 'doctor']) {
+    for (const h of ['--help', '-h']) {
+      const c = capture();
+      const code = await tunlite(c.io, cmd, h);
+      assert.equal(code, 0, `${cmd} ${h} should exit 0`);
+      assert.match(c.out(), /tunlite — cross-platform SSH tunnel manager/);
+      assert.doesNotMatch(c.err(), /unknown option|unknown .* subcommand/);
+    }
+  }
+  // export --help must NOT dump config (it used to ignore the flag and run).
+  const e = capture();
+  await tunlite(e.io, 'export', '--help');
+  assert.doesNotMatch(e.out(), /"tunnels"/);
+});
+
 test('webhook test redacts the url (human + --json) and posts the full url', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
@@ -956,6 +1019,18 @@ test('export redacts the webhook url but leaves on-disk config intact', async (t
   assert.equal(cfg.settings.alerts.webhook.url, SECRET_URL);
 });
 
+// --- logs <unknown> is not-found, like every other name-taking verb ---------
+// Before the guard, an unknown name tailed an empty log channel and exited 0,
+// so an agent probing `logs x --json` read "success, no logs" for a typo.
+test('logs <unknown> exits NOTFOUND instead of silently tailing nothing', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  const c = capture();
+  const code = await tunlite(c.io, 'logs', 'nope');
+  assert.equal(code, 3); // EXIT.NOTFOUND
+  assert.match(c.err(), /no such tunnel/);
+});
+
 // --- logs honors --json (NDJSON) ------------------------------------------
 test('logs --json emits NDJSON (one JSON object per line); human path unchanged', async (t) => {
   const env = withEnv();
@@ -1002,6 +1077,10 @@ test('logs (non-follow) returns all lines, not a 200ms-timer subset', async (t) 
   const env = withEnv();
   const { Server } = require('../src/ipc');
   const paths = require('../src/paths');
+
+  // Register the tunnel so the CLI's not-found guard passes. No daemon is up yet
+  // (the fake logs server is started below), so `add` only writes config.
+  await tunlite(capture().io, 'add', 'remote', 'rev', '--to', 'me@host', '--local', '3000', '--remote', '9000');
 
   const N = 400;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

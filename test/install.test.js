@@ -159,6 +159,25 @@ test('writeManifest/readManifest round-trip; isAnchored matches libDir', () => {
   assert.equal(install.isAnchored({ file, dir: '/somewhere/node_modules/tunlite' }), false);
 });
 
+test('isAnchored is symlink-tolerant (manifest libDir reached through a symlink)', () => {
+  // Mirrors /home -> /var/home (Fedora Silverblue/CoreOS) and /tmp -> /private/tmp
+  // (macOS): the real install dir is reached via a symlinked parent. The manifest
+  // stores the symlink path; node realpaths __dirname, so the two must still match.
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-link-'));
+  const realLib = path.join(base, 'real', 'lib');
+  fs.mkdirSync(realLib, { recursive: true });
+  const linkParent = path.join(base, 'link');
+  fs.symlinkSync(path.join(base, 'real'), linkParent); // link -> real
+  const libViaLink = path.join(linkParent, 'lib');     // base/link/lib -> base/real/lib
+
+  const file = path.join(base, 'install.json');
+  install.writeManifest({ libDir: libViaLink, binDir: '/usr/local/bin', nodePath: '/usr/local/bin/node', version: '9.9.9' }, { file });
+  // The running copy resolves to the canonical (realpath) location.
+  assert.equal(install.isAnchored({ file, dir: realLib }), true, 'canonical dir must match a symlinked manifest libDir');
+  // And matches when queried via the symlink path too.
+  assert.equal(install.isAnchored({ file, dir: libViaLink }), true);
+});
+
 test('readManifest returns null when absent', () => {
   assert.equal(install.readManifest({ file: '/no/such/install.json' }), null);
 });
