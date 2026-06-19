@@ -272,7 +272,7 @@ function renderLines(state, ui, size, opts = {}) {
   const health = serviceHealth(running, tunnels);            // 2 daemon (colored by overall health)
   const dPlain = running
     ? `● daemon  running   pid ${state.daemon.pid}   v${state.daemon.version}   up ${state.daemon.uptime || '0s'}`
-    : '● daemon  not running — tunnels are not active (run `tunlite up`)';
+    : '● daemon  not running — tunnels are not active (run `tunlite enable all`)';
   lines.push(colorize(fit(dPlain, width), health, color));
   const b = countBuckets(tunnels);                            // 3 counts (each bucket in its own color)
   const seg = (glyph, n, word, col) => [`${glyph} ${n} ${word}`, n > 0 ? col : 'dim'];

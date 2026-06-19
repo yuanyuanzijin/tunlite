@@ -9,17 +9,14 @@ const ipc = require('./ipc');
 const autostart = require('./autostart');
 const skillmod = require('./skill');
 const installer = require('./install');
-const { formatDuration, serviceHealth, colorize, renderTunnelTable, tunnelDetailRows, forwardTypes, forwardRoutes, checkStyle } = require('./format');
+const { formatDuration, serviceHealth, colorize, renderTunnelTable, tunnelDetailRows, forwardTypes, forwardRoutes, forwardLabel, checkStyle } = require('./format');
 const monitormod = require('./monitor');
 const completionmod = require('./completion');
 const doctormod = require('./doctor');
-const { EXIT, parseFlags, jsonOut, line, errline, isInteractive, printDaemonDown, pad } = require('./cli-core');
+const { EXIT, fail, parseFlags, jsonOut, line, errline, isInteractive, printDaemonDown, pad, warnEndpointConflicts, collectForwards, suggest, failUnknown } = require('./cli-core');
 const { daemonPing, ensureDaemon, archiveFetch, resolveLatestTag, restartDaemonProcess, renderUpdate } = require('./daemon-control');
 const { selectTunnels, tunnelsByTag, resolveSelection, reloadIfRunning } = require('./selection');
-const forwardCmd = require('./commands/forward');
-const { buildForward } = forwardCmd;
 const webhookCmd = require('./commands/webhook');
-const { redactAlerts } = webhookCmd;
 const installCmd = require('./commands/install');
 
 const { VERSION } = require('./version');
@@ -38,7 +35,7 @@ async function gatherStatus(name, opts) {
       sshOptions: t.sshOptions, jump: t.jump, tags: t.tags,
       enabled: t.enabled, autoSetupKey: t.autoSetupKey,
       state: 'daemon-stopped', pid: null,
-      restarts: 0, uptimeMs: 0, lastError: null, forwards: t.forwards,
+      restarts: 0, uptimeMs: 0, lastError: null, lastExitCode: null, forwards: t.forwards,
     }));
   }
   const tunnels = rows.map((r) => ({ ...r, uptime: r.uptimeMs ? formatDuration(r.uptimeMs) : null }));
@@ -53,32 +50,32 @@ async function gatherStatus(name, opts) {
 
 // ---- commands -----------------------------------------------------------
 const commands = {
-  // add <local|remote|dynamic> <name> --to user@host[:port] ...
-  //   local   --remote [host:]PORT [--local [host:]PORT]   (reach a remote service locally)
-  //   remote  --local  [host:]PORT [--remote [host:]PORT]  (expose a local service on the server)
-  //   dynamic [--local [host:]PORT]                        (local SOCKS5; default 1080)
+  // add <name> --to user@host[:port] -L … -R … -D … [common flags]
   async add(args, io, opts) {
-    const sub = args[0];
-    if (!['local', 'remote', 'dynamic'].includes(sub)) {
-      errline(io, 'usage: tunlite add <local|remote|dynamic> <name> --to user@host[:port] ...');
-      return EXIT.USAGE;
+    // Breaking-change guidance: the old `add <type> <name>` form is gone.
+    if (['local', 'remote', 'dynamic'].includes(args[0])) {
+      fail('add syntax changed in 0.10.0 — use ssh-native flags:\n  tunlite add <name> --to user@host -L 8080:host:80   (was: add local <name> --remote 80 --local 8080)');
     }
-    const { flags, positionals } = parseFlags(args.slice(1), {
-      value: ['--to', '--local', '--remote', '-i', '--jump'],
-      repeat: ['--ssh-opt', '--tag'],
+    const { flags, positionals } = parseFlags(args, {
+      value: ['--to', '-i', '--jump'],
+      repeat: ['-L', '-R', '-D', '--ssh-opt', '--tag'],
       bool: ['--disabled', '--no-auto-key'],
     });
     const name = positionals[0];
-    const targetRaw = flags['--to'] || positionals[1];
-    if (!name || !targetRaw) { errline(io, `usage: tunlite add ${sub} <name> --to user@host[:port] ...`); return EXIT.USAGE; }
-
-    let target, forward, jump, tags;
+    if (!name || !flags['--to']) {
+      fail('usage: tunlite add <name> --to user@host[:port] -L [bind:]port:host:hostport | -R … | -D [bind:]port  [-i key] [--jump h] [--ssh-opt OPT] [--tag T] [--disabled] [--no-auto-key]');
+    }
+    if (positionals.length > 1) {
+      fail(`unexpected argument "${positionals[1]}" — forwards use -L/-R/-D flags, not positionals (e.g. -L 8080:localhost:80)`);
+    }
+    let target, forwards, jump, tags;
     try {
-      target = config.parseTarget(targetRaw);
-      forward = buildForward(sub, flags);
+      target = config.parseTarget(flags['--to']);
+      forwards = collectForwards(flags);
       jump = config.parseJump(flags['--jump']);
       tags = config.parseTags(flags['--tag']);
-    } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    } catch (e) { fail(e.message); }
+    if (forwards.length === 0) { fail('add needs at least one forward (-L / -R / -D)'); }
 
     const tunnel = {
       name, host: target.host,
@@ -86,7 +83,7 @@ const commands = {
       identityFile: flags['-i'] || null,
       jump,
       tags,
-      forwards: [forward],
+      forwards,
       sshOptions: flags['--ssh-opt'] || [],
       enabled: !flags['--disabled'],
       autoSetupKey: !flags['--no-auto-key'],
@@ -96,20 +93,21 @@ const commands = {
     // name silently overwrote the prior definition (exit 0, data loss); steer to
     // `set` (change in place) or `rm` first — mirrors rename's conflict guard.
     if (config.findTunnel(cfg, name)) {
-      errline(io, `a tunnel named "${name}" already exists (use \`tunlite set ${name} ...\` to change it, or \`tunlite rm ${name}\` first)`);
-      return EXIT.USAGE;
+      fail(`a tunnel named "${name}" already exists (use \`tunlite set ${name} ...\` to change it, or \`tunlite rm ${name}\` first)`);
     }
     // The name is validated inside upsertTunnel; a bad name is a usage error (2),
     // not an uncaught throw bubbling up as a generic error (1) — matches rename.
     let v;
     try { v = config.upsertTunnel(cfg, tunnel); }
-    catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    catch (e) { fail(e.message); }
     config.save(cfg, opts.configFile);
+    warnEndpointConflicts(io, cfg, tunnel);
     const reloaded = await reloadIfRunning();
     if (opts.json) { jsonOut(io, { ...v, daemonRunning: reloaded }); return EXIT.OK; }
-    line(io, `added "${name}" -> ${target.host}  [${forwardTypes(v)} ${forwardRoutes(v)}]`);
+    line(io, `added "${name}" -> ${target.host}`);
+    for (const f of v.forwards) line(io, `  ${forwardLabel(f)}`);
     if (!reloaded && v.enabled) {
-      line(io, 'daemon not running — start it to bring this tunnel up:  tunlite up   (or: tunlite daemon start / tunlite install service)');
+      line(io, `daemon not running — start it to bring this tunnel up:  tunlite enable ${name}   (or: tunlite daemon start / tunlite install service)`);
     }
     return EXIT.OK;
   },
@@ -117,10 +115,10 @@ const commands = {
   async rm(args, io, opts) {
     const { positionals } = parseFlags(args);
     const name = positionals[0];
-    if (!name) { errline(io, 'usage: tunlite rm <name>'); return EXIT.USAGE; }
+    if (!name) { fail('usage: tunlite rm <name>'); }
     const cfg = config.load(opts.configFile);
     if (!config.removeTunnel(cfg, name)) {
-      errline(io, `no such tunnel: ${name}`); return EXIT.NOTFOUND;
+      fail(`no such tunnel: ${name}`, EXIT.NOTFOUND);
     }
     config.save(cfg, opts.configFile);
     await reloadIfRunning(); // daemon reconcile stops the removed tunnel
@@ -132,15 +130,15 @@ const commands = {
   async rename(args, io, opts) {
     const { positionals } = parseFlags(args);
     const [oldName, newName] = positionals;
-    if (!oldName || !newName) { errline(io, 'usage: tunlite rename <old> <new>'); return EXIT.USAGE; }
+    if (!oldName || !newName) { fail('usage: tunlite rename <old> <new>'); }
     if (oldName === newName) { line(io, 'name unchanged'); return EXIT.OK; }
     const cfg = config.load(opts.configFile);
     const t = config.findTunnel(cfg, oldName);
-    if (!t) { errline(io, `no such tunnel: ${oldName}`); return EXIT.NOTFOUND; }
-    if (config.findTunnel(cfg, newName)) { errline(io, `a tunnel named "${newName}" already exists`); return EXIT.USAGE; }
+    if (!t) { fail(`no such tunnel: ${oldName}`, EXIT.NOTFOUND); }
+    if (config.findTunnel(cfg, newName)) { fail(`a tunnel named "${newName}" already exists`); }
     let renamed;
     try { renamed = config.validateTunnel({ ...t, name: newName }); }
-    catch (e) { errline(io, `invalid name "${newName}": ${e.message}`); return EXIT.USAGE; }
+    catch (e) { fail(`invalid name "${newName}": ${e.message}`); }
     config.removeTunnel(cfg, oldName);
     config.upsertTunnel(cfg, renamed);
     config.save(cfg, opts.configFile);
@@ -149,24 +147,27 @@ const commands = {
     const reloaded = await reloadIfRunning();
     if (opts.json) { jsonOut(io, { from: oldName, to: newName, daemonRunning: reloaded }); return EXIT.OK; }
     line(io, `renamed "${oldName}" -> "${newName}"`);
-    if (!reloaded && renamed.enabled) line(io, 'daemon not running — start it with:  tunlite up');
+    if (!reloaded && renamed.enabled) line(io, `daemon not running — start it with:  tunlite enable ${newName}`);
     return EXIT.OK;
   },
 
   // set <name> [--to ...] [-i key] [--jump ...] [--ssh-opt OPT] [--auto-key|--no-auto-key]
   //   change an existing tunnel's connection settings (host/port/key/jump/options).
-  //   Forwards are managed separately via `forward`.
+  //   Pass -L/-R/-D to replace the whole forward set.
   async set(args, io, opts) {
     const { flags, positionals } = parseFlags(args, {
       value: ['--to', '-i', '--jump'],
-      repeat: ['--ssh-opt', '--tag'],
+      repeat: ['-L', '-R', '-D', '--ssh-opt', '--tag'],
       bool: ['--auto-key', '--no-auto-key', '--no-tags'],
     });
     const name = positionals[0];
-    if (!name) { errline(io, 'usage: tunlite set <name> [--to user@host[:port]] [-i key] [--jump host] [--ssh-opt OPT] [--tag T | --no-tags] [--auto-key|--no-auto-key]'); return EXIT.USAGE; }
+    if (!name) { fail('usage: tunlite set <name> [--to user@host[:port]] [-i key] [--jump host] [--ssh-opt OPT] [--tag T | --no-tags] [--auto-key|--no-auto-key]'); }
+    if (positionals.length > 1) {
+      fail(`unexpected argument "${positionals[1]}" — forwards use -L/-R/-D flags, not positionals (e.g. -L 8080:localhost:80)`);
+    }
     const cfg = config.load(opts.configFile);
     const t = config.findTunnel(cfg, name);
-    if (!t) { errline(io, `no such tunnel: ${name}`); return EXIT.NOTFOUND; }
+    if (!t) { fail(`no such tunnel: ${name}`, EXIT.NOTFOUND); }
 
     const changed = [];
     try {
@@ -178,16 +179,23 @@ const commands = {
       else if (flags['--tag'] !== undefined) { t.tags = config.parseTags(flags['--tag']); changed.push('tags'); }
       if (flags['--no-auto-key']) { t.autoSetupKey = false; changed.push('auto-key'); }
       else if (flags['--auto-key']) { t.autoSetupKey = true; changed.push('auto-key'); }
-    } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+      if (flags['-L'] || flags['-R'] || flags['-D']) {
+        const fwds = collectForwards(flags);
+        t.forwards = fwds;
+        changed.push('forwards');
+      }
+    } catch (e) { fail(e.message); }
 
-    if (changed.length === 0) { errline(io, 'nothing to set — pass one of --to / -i / --jump / --ssh-opt / --tag / --no-tags / --auto-key / --no-auto-key'); return EXIT.USAGE; }
+    if (changed.length === 0) { fail('nothing to set — pass one of --to / -i / --jump / --ssh-opt / --tag / --no-tags / --auto-key / --no-auto-key'); }
 
     let v;
-    try { v = config.upsertTunnel(cfg, t); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    try { v = config.upsertTunnel(cfg, t); } catch (e) { fail(e.message); }
     config.save(cfg, opts.configFile);
+    warnEndpointConflicts(io, cfg, t);
     const reloaded = await reloadIfRunning();
     if (opts.json) { jsonOut(io, { ...v, daemonRunning: reloaded }); return EXIT.OK; }
     line(io, `"${name}": updated ${changed.join(', ')}${reloaded ? '' : '   (daemon not running)'}`);
+    if (changed.includes('forwards')) for (const f of v.forwards) line(io, `  ${forwardLabel(f)}`);
     return EXIT.OK;
   },
 
@@ -195,10 +203,10 @@ const commands = {
     const { flags } = parseFlags(args, { repeat: ['--tag'] });
     const cfg = config.load(opts.configFile);
     let tags;
-    try { tags = config.parseTags(flags['--tag']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    try { tags = config.parseTags(flags['--tag']); } catch (e) { fail(e.message); }
     const tunnels = tags.length ? tunnelsByTag(cfg, tags) : cfg.tunnels;
     // An explicit --tag that matches nothing is not-found (3), consistent with
-    // up/down/restart/status (the documented tag contract).
+    // enable/disable/restart/status (the documented tag contract).
     if (tags.length && tunnels.length === 0) {
       const msg = `no tunnels tagged ${tags.map((x) => `"${x}"`).join(', ')}`;
       if (opts.json) jsonOut(io, { error: msg, code: EXIT.NOTFOUND });
@@ -218,17 +226,19 @@ const commands = {
     return EXIT.OK;
   },
 
-  // forward add|rm|list <tunnel> ... — manage a tunnel's forwards (one tunnel can
-  // carry several -L/-R/-D over a single ssh connection).
-  forward: forwardCmd.forward,
+  // run --to user@host -L … | -R … | -D … [--name LABEL] [--exit-on-failure]
+  //   a daemon-less, foreground, supervised single tunnel built entirely from
+  //   inline flags (never reads config). Self-reports state on stderr (or NDJSON
+  //   on stdout with --json) and exits 0 on SIGTERM/SIGINT.
+  run: (args, io, opts) => require('./commands/run').run(args, io, opts),
 
-  async up(args, io, opts) {
+  async enable(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { repeat: ['--tag'] });
     const cfg = config.load(opts.configFile);
-    const sel = resolveSelection(cfg, positionals[0], flags['--tag']);
+    const sel = resolveSelection(cfg, positionals[0], flags['--tag'], { requireTarget: true });
     if (sel.error) { errline(io, sel.error); return sel.code; }
     const targets = sel.targets;
-    if (targets.length === 0) { errline(io, 'no tunnels defined'); return EXIT.NOTFOUND; }
+    if (targets.length === 0) { fail('no tunnels defined', EXIT.NOTFOUND); }
     for (const t of targets) t.enabled = true;
     config.save(cfg, opts.configFile);
 
@@ -253,10 +263,10 @@ const commands = {
     return commands.status(statusArgs, io, opts);
   },
 
-  async down(args, io, opts) {
+  async disable(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { repeat: ['--tag'] });
     const cfg = config.load(opts.configFile);
-    const sel = resolveSelection(cfg, positionals[0], flags['--tag']);
+    const sel = resolveSelection(cfg, positionals[0], flags['--tag'], { requireTarget: true });
     if (sel.error) { errline(io, sel.error); return sel.code; }
     const targets = sel.targets;
     for (const t of targets) t.enabled = false;
@@ -269,20 +279,15 @@ const commands = {
 
   async restart(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { repeat: ['--tag'] });
-    // Resolve a tag selection to concrete names from config (the restart IPC
-    // takes names); a bare name or nothing keeps the prior behavior. No name and
-    // no --tag restarts all.
-    let names;
-    if (flags['--tag'] !== undefined || positionals[0]) {
-      const cfg = config.load(opts.configFile);
-      const sel = resolveSelection(cfg, positionals[0], flags['--tag']);
-      if (sel.error) { errline(io, sel.error); return sel.code; }
-      names = sel.targets.map((t) => t.name);
-    } else {
-      names = [];
-    }
+    // restart acts on tunnels, so it names its target like enable/disable: a
+    // name, --tag, or `all`. Resolve to concrete names (the restart IPC takes
+    // names).
+    const cfg = config.load(opts.configFile);
+    const sel = resolveSelection(cfg, positionals[0], flags['--tag'], { requireTarget: true });
+    if (sel.error) { errline(io, sel.error); return sel.code; }
+    const names = sel.targets.map((t) => t.name);
     const ping = await daemonPing();
-    if (!ping) return commands.up(args, io, opts);
+    if (!ping) return commands.enable(args, io, opts);
     const res = await ipc.request(paths.socketPath(), 'restart', { names });
     if (opts.json) { jsonOut(io, res); return EXIT.OK; }
     line(io, `restarted: ${res.restarted.join(', ') || '(all)'}`);
@@ -291,10 +296,13 @@ const commands = {
 
   async status(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { repeat: ['--tag'] });
-    const name = positionals[0];
+    // `all` is the reserved "every tunnel" token (no tunnel can be named it), so it
+    // reads the same as no name — show them all. This also lets `enable all` hand its
+    // selector straight to the status display without it being read as a tunnel name.
+    const name = positionals[0] === 'all' ? undefined : positionals[0];
     let tags;
-    try { tags = config.parseTags(flags['--tag']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
-    if (tags.length && name) { errline(io, 'give a tunnel name or --tag, not both'); return EXIT.USAGE; }
+    try { tags = config.parseTags(flags['--tag']); } catch (e) { fail(e.message); }
+    if (tags.length && name) { fail('give a tunnel name or --tag, not both'); }
     // An explicit --tag that matches nothing in config is not-found (3) — checked
     // against config up front so the answer is the same whether or not the daemon
     // is up (otherwise a down daemon would mask it as daemon-unreachable, 5).
@@ -368,17 +376,16 @@ const commands = {
   async monitor(args, io, opts) {
     const { flags } = parseFlags(args, { value: ['--interval'], repeat: ['--tag'] });
     if (opts.json || !isInteractive()) {
-      errline(io, 'tunlite monitor needs an interactive terminal; for scripts use `tunlite status --json`');
-      return EXIT.USAGE;
+      fail('tunlite monitor needs an interactive terminal; for scripts use `tunlite status --json`');
     }
     let intervalMs = 1000;
     if (flags['--interval'] !== undefined) {
       const s = Number(flags['--interval']);
-      if (!Number.isFinite(s) || s < 0.25 || s > 60) { errline(io, 'invalid --interval (expected seconds, 0.25–60)'); return EXIT.USAGE; }
+      if (!Number.isFinite(s) || s < 0.25 || s > 60) { fail('invalid --interval (expected seconds, 0.25–60)'); }
       intervalMs = Math.round(s * 1000);
     }
     let tags;
-    try { tags = config.parseTags(flags['--tag']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    try { tags = config.parseTags(flags['--tag']); } catch (e) { fail(e.message); }
     // When filtering by tag, keep only matching tunnels in the live feed; the
     // header shows the active filter so an empty/partial board isn't confusing.
     const tagWant = tags.length ? new Set(tags) : null;
@@ -432,12 +439,12 @@ const commands = {
   async logs(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { value: ['-n'], bool: ['-f', '--follow'] });
     const name = positionals[0];
-    // A named tunnel must exist (consistent with down/restart/rm/status); a bare
+    // A named tunnel must exist (consistent with disable/restart/rm/status); a bare
     // `logs` with no name tails the daemon's own log. Without this guard an
     // unknown name silently tailed an empty channel and exited 0, breaking the
     // not-found (3) contract every other name-taking command honors.
     if (name && !config.findTunnel(config.load(opts.configFile), name)) {
-      errline(io, `no such tunnel: ${name}`); return EXIT.NOTFOUND;
+      fail(`no such tunnel: ${name}`, EXIT.NOTFOUND);
     }
     const follow = Boolean(flags['-f'] || flags['--follow']);
     const n = flags['-n'] ? Number(flags['-n']) : 100;
@@ -472,9 +479,9 @@ const commands = {
 
   async check(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { value: ['-i', '--jump'] });
-    if (!positionals[0]) { errline(io, 'usage: tunlite check <user@host[:port]> [-i key] [--jump host]'); return EXIT.USAGE; }
+    if (!positionals[0]) { fail('usage: tunlite check <user@host[:port]> [-i key] [--jump host]'); }
     let target, jump;
-    try { target = config.parseTarget(positionals[0]); jump = config.parseJump(flags['--jump']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    try { target = config.parseTarget(positionals[0]); jump = config.parseJump(flags['--jump']); } catch (e) { fail(e.message); }
     const host = target.host;
     const probe = await ssh.probeAuth(host, { port: target.port || 22, identityFile: flags['-i'], jump });
     if (opts.json) {
@@ -489,9 +496,9 @@ const commands = {
 
   async 'setup-key'(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { value: ['-i', '--jump'] });
-    if (!positionals[0]) { errline(io, 'usage: tunlite setup-key <user@host[:port]> [-i key] [--jump host]'); return EXIT.USAGE; }
+    if (!positionals[0]) { fail('usage: tunlite setup-key <user@host[:port]> [-i key] [--jump host]'); }
     let target, jump;
-    try { target = config.parseTarget(positionals[0]); jump = config.parseJump(flags['--jump']); } catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    try { target = config.parseTarget(positionals[0]); jump = config.parseJump(flags['--jump']); } catch (e) { fail(e.message); }
     const host = target.host;
     const port = target.port || 22;
     const pre = await ssh.probeAuth(host, { port, identityFile: flags['-i'], jump });
@@ -545,7 +552,7 @@ const commands = {
       line(io, 'daemon stopping');
       if (svcInstalled) {
         line(io, 'note: the OS autostart service is installed, so it will be restarted automatically.');
-        line(io, '      to stop permanently: tunlite uninstall service   (or disable tunnels: tunlite down)');
+        line(io, '      to stop permanently: tunlite uninstall service   (or disable tunnels: tunlite disable)');
       }
       return EXIT.OK;
     }
@@ -555,7 +562,7 @@ const commands = {
       line(io, ping ? `daemon running (pid ${ping.pid}, v${ping.version})` : 'daemon not running');
       return EXIT.OK;
     }
-    errline(io, `unknown daemon subcommand: ${sub}`); return EXIT.USAGE;
+    failUnknown('daemon subcommand', sub, ['start', 'stop', 'status', 'run']);
   },
 
   // Install the companion agent skill into a Claude Code skills dir.
@@ -618,8 +625,7 @@ const commands = {
       return EXIT.OK;
     }
     if (!['bash', 'zsh', 'fish'].includes(sub)) {
-      errline(io, 'usage: tunlite completion <bash|zsh|fish>');
-      return EXIT.USAGE;
+      fail('usage: tunlite completion <bash|zsh|fish>');
     }
     io.out.write(completionmod.script(sub));
     return EXIT.OK;
@@ -629,17 +635,15 @@ const commands = {
   // matching `daemon`/`skill` (bare group = status); flags only modify `set`.
   webhook: webhookCmd.webhook,
 
-  // Dump the validated config (settings + tunnels) as JSON for backup/sharing.
-  // No secrets: identityFile is a path, not key material; the webhook url (which
-  // embeds a token) is redacted so the dump is safe to share. The on-disk config
-  // is never modified.
+  // Print the portable subset of the config — just the tunnels — as an importable
+  // JSON document ({version, tunnels}, the exact shape `import` reads). Settings
+  // (backoff/keepalive tuning, the webhook url + its token) are machine-local and
+  // `import` never reads them, so emitting them would be redundant and misleading;
+  // we leave them out entirely. No secrets: identityFile is a path, not key
+  // material. The on-disk config is never modified.
   async export(_args, io, opts) {
-    const channels = require('./channels');
-    const cfg = JSON.parse(JSON.stringify(config.load(opts.configFile)));
-    if (cfg.settings && cfg.settings.alerts) {
-      cfg.settings.alerts = redactAlerts(cfg.settings.alerts, channels);
-    }
-    jsonOut(io, cfg);
+    const cfg = config.load(opts.configFile);
+    jsonOut(io, { version: cfg.version, tunnels: cfg.tunnels });
     return EXIT.OK;
   },
 
@@ -648,8 +652,8 @@ const commands = {
   async import(args, io, opts) {
     const { flags, positionals } = parseFlags(args, { bool: ['--force'] });
     const file = positionals[0];
-    if (!file) { errline(io, 'usage: tunlite import <file> [--force]'); return EXIT.USAGE; }
-    if (!fs.existsSync(file)) { errline(io, `no such file: ${file}`); return EXIT.NOTFOUND; }
+    if (!file) { fail('usage: tunlite import <file> [--force]'); }
+    if (!fs.existsSync(file)) { fail(`no such file: ${file}`, EXIT.NOTFOUND); }
     let incoming;
     try { incoming = config.load(file); }
     catch (e) { errline(io, `import failed: ${e.message}`); return EXIT.ERROR; }
@@ -689,39 +693,34 @@ const HELP = `tunlite — cross-platform SSH tunnel manager
 USAGE
   tunlite <command> [options]            (add --json to most commands for machine output)
 
-DEFINE (--local = your machine, --remote = the server side)
-  add local   <name> --to user@host[:port] --remote [host:]PORT [--local [host:]PORT]
-                              reach a remote service on your machine
-  add remote  <name> --to user@host[:port] --local [host:]PORT [--remote [host:]PORT]
-                              expose a local service on the server
-  add dynamic <name> --to user@host[:port] [--local [host:]PORT]
-                              local SOCKS5 proxy (default port 1080)
+DEFINE forwards with ssh-native flags: -L/-R/-D (repeatable)
+  add <name> --to user@host[:port] -L [bind:]PORT:HOST:HOSTPORT  reach a remote service locally
+                                    -R [bind:]PORT:HOST:HOSTPORT  expose a local service on the server
+                                    -D [bind:]PORT                local SOCKS5 proxy
        common: [-i keyfile] [--jump [user@]host[:port][,...]] [--ssh-opt OPT] [--tag T]... [--disabled] [--no-auto-key]
-       a host: prefix is the bind address on the listening side (0.0.0.0 to expose),
-       or the host to connect to on the target side (default localhost).
+       a bind: prefix is the listen address (0.0.0.0 to expose); IPv6 must be bracketed ([::1]).
+       e.g. tunlite add web --to me@host -L 8080:localhost:80 -D 1080
+  set <name> [--to user@host[:port]] [-L … -R … -D …] [-i key] [--jump host] [--ssh-opt OPT] [--tag T | --no-tags] [--auto-key|--no-auto-key]
+                              change a tunnel; passing -L/-R/-D replaces its whole forward set
   rename <old> <new>          rename a tunnel (cleanly hands the live tunnel over)
-  set <name> [--to user@host[:port]] [-i key] [--jump host] [--ssh-opt OPT] [--tag T | --no-tags] [--auto-key|--no-auto-key]
-                              change an existing tunnel's host / key / jump / options / tags
   rm <name>
   list [--tag T]              list tunnels (--tag filters to a label)
-
-  forward list <tunnel>                              list a tunnel's forwards (with indexes)
-  forward add  <tunnel> <local|remote|dynamic> ...   add another forward to a tunnel
-  forward rm   <tunnel> <index>                       remove a forward (a tunnel keeps >=1)
 
   Naming convention: lowercase, "<purpose>-<port>", words hyphenated, no spaces.
   e.g. tmux-prod-19999 · progress-board-4705 · db-staging-5432
 
-CONTROL
-  up [name] [--tag T]    enable + start (probes/sets up passwordless first); no name/tag = all
-  down [name] [--tag T]  disable + stop
-  restart [name] [--tag T]   bounce running tunnel(s)
+CONTROL  (name a target: a tunnel, --tag T, or 'all' — never bare)
+  enable  <name | --tag T | all>   turn on now and keep it on across reboots (sets up passwordless first)
+  disable <name | --tag T | all>   turn off now and keep it off (survives daemon restart)
+  restart <name | --tag T | all>   bounce running tunnel(s)
        --tag selects every tunnel carrying that label (repeatable = union); a
-       name and --tag are mutually exclusive.
+       name and --tag are mutually exclusive. 'all' = every tunnel.
+  run --to user@host -L … -R … -D … [--name LABEL] [--json] [--exit-on-failure]
+                         foreground, daemon-less supervised tunnel (container/systemd entrypoint)
 
 INSPECT
   status [name] [--tag T]  structured state (pid/uptime/restarts/lastError)
-  monitor [--interval s] [--tag T]   live top-style dashboard; act on tunnels (start/stop/restart)
+  monitor [--interval s] [--tag T]   live top-style dashboard; act on tunnels (enable/disable/restart)
   logs <name> [-f] [-n N]
   doctor [name]      diagnose why a tunnel won't connect (ssh/keys/ports/daemon/service)
   check <user@host[:port]> [-i key] [--jump host]   exit 0 if passwordless works
@@ -740,13 +739,15 @@ WEBHOOK (disconnect alerts)
                                       channels: generic (raw JSON) · wecom (WeCom)
 
 CONFIG I/O
-  export                              print config (settings + tunnels) as JSON
+  export                              print your tunnels as importable JSON (backup/share)
   import <file> [--force]             merge tunnels from a file (skip same-name; --force overwrites)
 
 INSTALL
-  install [--service] [--skill user|cwd|<path>] [--completion] [--yes]   anchor + onboarding
-  install service                                         add just the autostart service
-  install skill [--dir user|cwd|<path>]                   add just the agent skill
+  install [-y]    set up tunlite: anchors the runtime, then (in a terminal) offers
+                  autostart · shell completion · the agent skill.  -y = yes to all;
+                  in a script with no -y it only anchors.
+  install service                                         set up just the autostart service
+  install skill [--dir user|cwd|<path>]                   install just the agent skill
   install completion [bash|zsh|fish]                      enable tab-completion (auto-detects your shell)
   uninstall [service|skill|completion] [--purge] [--force] remove (no target = everything; confirms first, --force skips)
 
@@ -755,15 +756,15 @@ UPDATE
                      flags: --check (report only) · --no-restart · --force
 
 ADVANCED (plumbing — you normally don't need these)
-  daemon run                                the supervisor process itself (what 'up' / the service launch)
+  daemon run                                the supervisor process itself (what 'enable' / the service launch)
   daemon start|stop|status                  poke that process directly
 
 MENTAL MODEL — three roles
-  CLI (this command)  you control tunnels: add/up/down/status/logs. Exits immediately.
+  CLI (this command)  you control tunnels: add/enable/disable/status/logs. Exits immediately.
   daemon              one background process that holds the tunnels open & reconnects.
   service             the OS keeping that daemon alive across reboots/crashes.
-  Day to day you only need: add · up · down · status · logs, plus 'install service'
-  once if you want them to survive reboot. The daemon starts only via 'tunlite up'
+  Day to day you only need: add · enable · disable · status · logs, plus 'install service'
+  once if you want them to survive reboot. The daemon starts only via 'tunlite enable'
   (on demand) or 'tunlite install service' (at login); other commands won't start it,
   they tell you how. Note: with the service installed, 'daemon stop' is temporary
   — the OS restarts it; use 'tunlite uninstall service' to stop for good.
@@ -781,7 +782,17 @@ async function run(argv, io = { out: process.stdout, err: process.stderr }) {
   if (cmd === '-v' || cmd === '--version') cmd = 'version';
   if (cmd === 'mon') cmd = 'monitor';
   const handler = commands[cmd];
-  if (!handler) { errline(io, `unknown command: ${cmd}\nrun \`tunlite help\``); return EXIT.USAGE; }
+  if (!handler) {
+    // Did-you-mean: wrong-word aliases (up/down/start/stop are the persistent
+    // on/off pair, now enable/disable) win; otherwise the nearest command by edit
+    // distance, when it's a plausible typo.
+    const ALIASES = { up: 'enable', down: 'disable', start: 'enable', stop: 'disable' };
+    const guess = suggest(cmd, Object.keys(commands), ALIASES);
+    const dym = guess ? ` — did you mean \`${guess}\`?` : '';
+    const msg = `unknown command: ${cmd}${dym}\nrun \`tunlite help\``;
+    if (json) { jsonOut(io, { error: msg, code: EXIT.USAGE }); return EXIT.USAGE; }
+    errline(io, msg); return EXIT.USAGE;
+  }
 
   // The README promises "any command with `--help` for full flags". Only the
   // command position was honoring -h/--help; placed after a command (`status
@@ -804,9 +815,13 @@ async function run(argv, io = { out: process.stdout, err: process.stderr }) {
   try {
     return await handler(args.slice(1), io, opts);
   } catch (err) {
-    if (opts.json) jsonOut(io, { error: err.message, code: err.code });
-    else errline(io, `error: ${err.message}`);
-    return err.exitCode || EXIT.ERROR;
+    const code = err.exitCode || EXIT.ERROR;
+    if (opts.json) { jsonOut(io, { error: err.message, code }); return code; }
+    // Structured CLI failures (usage / not-found, which carry an exitCode) print
+    // their message verbatim, as before; only genuinely unexpected errors get the
+    // "error:" prefix.
+    errline(io, err.exitCode ? err.message : `error: ${err.message}`);
+    return code;
   }
 }
 

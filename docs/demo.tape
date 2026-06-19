@@ -34,7 +34,7 @@ Show
 
 # ---- 1. define a tunnel (the running daemon brings it up automatically) ----
 Sleep 600ms
-Type 'tunlite add local db-5432 --to me@server --remote 5432 --local 5432' Sleep 600ms Enter
+Type 'tunlite add db-5432 --to me@server -L 5432:localhost:5432' Sleep 600ms Enter
 
 # ---- 2. a moment later, check status ----
 Sleep 2.5s

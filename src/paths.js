@@ -42,6 +42,11 @@ function logDir() {
   return path.join(dataDir(), 'logs');
 }
 
+// Endpoint lock files (one per claimed forward endpoint) live here.
+function lockDir() {
+  return path.join(dataDir(), 'locks');
+}
+
 // Stable runtime copy location (independent of how the bits were delivered).
 function libDir() {
   if (root()) return path.join(root(), 'lib');
@@ -96,6 +101,7 @@ module.exports = {
   configDir,
   dataDir,
   logDir,
+  lockDir,
   libDir,
   configFile,
   pidFile,

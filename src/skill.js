@@ -7,7 +7,27 @@ const paths = require('./paths');
 
 const SKILL_NAME = 'ssh-tunnel';
 
-function sourceDir() { return path.join(__dirname, '..', 'skill', SKILL_NAME); }
+// Where the skill source lives. Normally that's the running copy
+// (`<runtime>/skill/ssh-tunnel`). But the combined `install` runs this step
+// AFTER anchor()'s cleanupLegacy() may have deleted the location we're running
+// from (an npm-global dir whose skill/ then vanishes mid-install). The anchored
+// libDir always carries a fresh copy (RUNTIME_ITEMS includes 'skill'), so fall
+// back to it via the install manifest. Returns the first candidate that actually
+// holds a SKILL.md, else the running-copy path (so the "not found" error names
+// the expected location).
+function sourceDir(opts = {}) {
+  const fsm = opts.fs || fs;
+  const runningDir = opts.runningDir || path.join(__dirname, '..');
+  const candidates = [path.join(runningDir, 'skill', SKILL_NAME)];
+  try {
+    const m = JSON.parse(fsm.readFileSync(opts.manifestFile || paths.installManifestFile(), 'utf8'));
+    if (m && m.libDir) candidates.push(path.join(m.libDir, 'skill', SKILL_NAME));
+  } catch (_) { /* no/unreadable manifest — running copy is the only candidate */ }
+  for (const c of candidates) {
+    if (fsm.existsSync(path.join(c, 'SKILL.md'))) return c;
+  }
+  return candidates[0];
+}
 function manifestFile() { return path.join(paths.dataDir(), 'skills.json'); }
 
 function readManifest() {

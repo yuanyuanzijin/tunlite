@@ -15,7 +15,7 @@ const autostart = require('../autostart');
 const skillmod = require('../skill');
 const installer = require('../install');
 const completionmod = require('../completion');
-const { EXIT, parseFlags, jsonOut, line, errline, canPrompt, confirm } = require('../cli-core');
+const { EXIT, fail, parseFlags, jsonOut, line, errline, canPrompt, confirm, failUnknown } = require('../cli-core');
 const { daemonPing } = require('../daemon-control');
 
 // Register the OS autostart service (drives the autostart adapter; sandboxed
@@ -37,12 +37,11 @@ async function installService(_args, io, opts) {
 
 // Wire shell completion into the user's shell (install completion [shell]).
 async function completionInstall(args, io, opts) {
-  if (process.platform === 'win32') { errline(io, 'shell completion is not supported on Windows'); return EXIT.USAGE; }
+  if (process.platform === 'win32') { fail('shell completion is not supported on Windows'); }
   const { positionals } = parseFlags(args);
   const shell = positionals[0] || completionmod.detectShell();
   if (!['bash', 'zsh', 'fish'].includes(shell)) {
-    errline(io, 'usage: tunlite install completion <bash|zsh|fish>  (could not detect $SHELL)');
-    return EXIT.USAGE;
+    fail('usage: tunlite install completion <bash|zsh|fish>  (could not detect $SHELL)');
   }
   const res = completionmod.installInto(shell);
   if (opts.json) { jsonOut(io, res); return EXIT.OK; }
@@ -57,8 +56,7 @@ async function completionUninstall(args, io, opts) {
   const { positionals } = parseFlags(args);
   const shell = positionals[0] || completionmod.detectShell();
   if (!['bash', 'zsh', 'fish'].includes(shell)) {
-    errline(io, 'usage: tunlite uninstall completion <bash|zsh|fish>  (could not detect $SHELL)');
-    return EXIT.USAGE;
+    fail('usage: tunlite uninstall completion <bash|zsh|fish>  (could not detect $SHELL)');
   }
   const res = completionmod.removeFrom(shell);
   if (opts.json) { jsonOut(io, res); return EXIT.OK; }
@@ -66,36 +64,31 @@ async function completionUninstall(args, io, opts) {
   return EXIT.OK;
 }
 
-// Decide service/skill choices from flags, env, or an interactive prompt.
+// Decide which onboarding steps bare `install` runs. There is exactly ONE way to
+// turn a step on: answer its prompt (interactive), or pass -y to take them all.
+// The old positive opt-in flags (--service/--skill/--completion) and their env
+// twins were removed — to set up just one piece non-interactively, use the
+// positional `install service|skill|completion` commands instead.
+//   -y / --yes      -> yes to all (skill -> user scope, completion -> detected shell)
+//   interactive tty -> ask y/N per step (skill also asks user vs this project)
+//   no tty, no -y   -> nothing; the caller prints a hint to add --yes
+// Returns { mode: 'all'|'prompted'|'skipped', service, skill, completion } where
+// skill is a dir choice (user|cwd|path) or null, and completion is a shell name
+// or false.
 async function onboardChoices(flags, io) {
-  // service: --service / --no-service / env TUNLITE_SERVICE=yes|no / prompt
-  let service;
-  if (flags['--service']) service = true;
-  else if (flags['--no-service']) service = false;
-  else if (process.env.TUNLITE_SERVICE) service = /^y(es)?$/i.test(process.env.TUNLITE_SERVICE);
-  else if (flags['--yes'] || flags['-y']) service = false;
-  else if (canPrompt()) service = await confirm(io, 'Register tunlite to start on login (autostart the daemon)? [y/N] ');
-  else service = false;
-
-  // skill: --skill <dir> / --no-skill / env TUNLITE_SKILL=user|cwd|path|no / prompt
-  let skill = null;
-  if (flags['--no-skill']) skill = null;
-  else if (flags['--skill']) skill = flags['--skill'];
-  else if (process.env.TUNLITE_SKILL) skill = /^no$/i.test(process.env.TUNLITE_SKILL) ? null : process.env.TUNLITE_SKILL;
-  else if (flags['--yes'] || flags['-y']) skill = null;
-  else if (canPrompt() && await confirm(io, 'Install the tunlite agent skill for Claude Code? [y/N] ')) skill = 'user';
-
-  // completion: --completion / --no-completion / env TUNLITE_COMPLETION=yes|no /
-  // prompt. Resolves to a shell name to wire, or false. Only offered when a
-  // supported shell is detected (and never on Windows).
   const detected = process.platform === 'win32' ? null : completionmod.detectShell();
+  if (flags['--yes'] || flags['-y']) {
+    return { mode: 'all', service: true, skill: 'user', completion: detected || false };
+  }
+  if (!canPrompt()) return { mode: 'skipped', service: false, skill: null, completion: false };
+  const service = await confirm(io, 'Register tunlite to start on login (autostart the daemon)? [y/N] ');
+  let skill = null;
+  if (await confirm(io, 'Install the tunlite agent skill for Claude Code? [y/N] ')) {
+    skill = (await confirm(io, 'Install it into THIS project (./.claude) instead of your user dir? [y/N] ')) ? 'cwd' : 'user';
+  }
   let completion = false;
-  if (flags['--no-completion']) completion = false;
-  else if (flags['--completion']) completion = detected;
-  else if (process.env.TUNLITE_COMPLETION) completion = /^y(es)?$/i.test(process.env.TUNLITE_COMPLETION) ? detected : false;
-  else if (flags['--yes'] || flags['-y']) completion = false;
-  else if (detected && canPrompt() && await confirm(io, `Enable shell completion for ${detected}? [y/N] `)) completion = detected;
-  return { service, skill, completion };
+  if (detected && await confirm(io, `Enable shell completion for ${detected}? [y/N] `)) completion = detected;
+  return { mode: 'prompted', service, skill, completion };
 }
 
 // Guard a destructive rmSync against a malformed/hand-edited install manifest:
@@ -147,7 +140,7 @@ async function skill(args, io, opts) {
     for (const r of rows) line(io, `${r.present ? 'present' : 'MISSING'}  ${r.path}`);
     return EXIT.OK;
   }
-  errline(io, `unknown skill subcommand: ${sub}`); return EXIT.USAGE;
+  failUnknown('skill subcommand', sub, ['install', 'uninstall', 'status']);
 }
 
 // Full teardown driven by the install manifest: stop the daemon, remove the OS
@@ -166,6 +159,11 @@ async function uninstall(args, io, opts) {
   }
   if (sub === 'skill') return skill(['uninstall', ...args.slice(1)], io, opts);
   if (sub === 'completion') return completionUninstall(args.slice(1), io, opts);
+  // A non-flag first arg that isn't a known target is a typo (e.g. `uninstall servic`);
+  // catch it instead of running a full teardown by surprise.
+  if (sub && !sub.startsWith('-')) {
+    failUnknown('uninstall target', sub, ['service', 'skill', 'completion']);
+  }
 
   const { flags } = parseFlags(args, { bool: ['--purge', '--yes', '-y', '--force'] });
   const steps = [];
@@ -276,10 +274,34 @@ async function install(args, io, opts) {
     return skill([verb, ...tail], io, opts);
   }
   if (sub === 'completion') return completionInstall(args.slice(1), io, opts);
+  // A non-flag first arg that isn't a known target is a typo (e.g. `install servic`);
+  // catch it instead of silently falling through to the bare guided install.
+  if (sub && !sub.startsWith('-')) {
+    failUnknown('install target', sub, ['service', 'skill', 'completion']);
+  }
+
+  // The old per-step opt-in/opt-out flags are gone: bare `install` is the guided
+  // entry point (-y = all), and a single piece is set up with the positional
+  // `install <service|skill|completion>` commands. Point anyone still passing the
+  // removed flags at the new shape instead of a bare "unknown option".
+  const REMOVED = {
+    '--service': 'Use `tunlite install service`, or `tunlite install -y` to set up everything.',
+    '--skill': 'Use `tunlite install skill [--dir user|cwd|<path>]`, or `tunlite install -y` to set up everything.',
+    '--completion': 'Use `tunlite install completion`, or `tunlite install -y` to set up everything.',
+    '--no-service': 'Bare `tunlite install` no longer registers autostart (pass -y to opt in), so there is nothing to turn off.',
+    '--no-skill': 'Bare `tunlite install` no longer installs the skill (pass -y to opt in), so there is nothing to turn off.',
+    '--no-completion': 'Bare `tunlite install` no longer wires completion (pass -y to opt in), so there is nothing to turn off.',
+  };
+  for (const a of args) {
+    const key = a.split('=')[0];
+    if (REMOVED[key]) {
+      throw Object.assign(new Error(`\`${key}\` was removed. ${REMOVED[key]}`), { exitCode: EXIT.USAGE });
+    }
+  }
 
   const { flags } = parseFlags(args, {
-    value: ['--lib', '--bin', '--node', '--skill'],
-    bool: ['--yes', '-y', '--service', '--no-service', '--no-skill', '--completion', '--no-completion'],
+    value: ['--lib', '--bin', '--node'],
+    bool: ['--yes', '-y'],
   });
   const env = { ...process.env };
   if (flags['--node']) env.TUNLITE_NODE = flags['--node'];
@@ -289,7 +311,7 @@ async function install(args, io, opts) {
   const res = installer.anchor({ env, libDir: flags['--lib'], binDir: flags['--bin'] });
   if (res.nodeWarn) errline(io, `note: pinned a version-manager node (${res.nodePath}); the autostart service may not survive a node version switch. Set TUNLITE_NODE to a system node to override.`);
 
-  const { service, skill: skillChoice, completion } = await onboardChoices(flags, io);
+  const { mode, service, skill: skillChoice, completion } = await onboardChoices(flags, io);
 
   // In --json mode the sub-steps must NOT print anything of their own (we
   // emit one combined document at the end), so we run them with json:false
@@ -357,6 +379,9 @@ async function install(args, io, opts) {
     if (service && serviceCode !== EXIT.OK) line(io, 'WARNING: service install was requested but failed (see above) — autostart is NOT set up.');
     if (skillChoice && skillCode !== EXIT.OK) line(io, 'WARNING: skill install was requested but failed (see above) — the agent skill was NOT installed.');
     line(io, failed ? 'tunlite anchored, but a requested onboarding step failed (see warnings above).' : 'tunlite ready — try: tunlite help');
+    // Couldn't ask (no tty) and -y wasn't given, so only the runtime was anchored.
+    // Tell the user how to set up autostart / completion / the agent skill.
+    if (mode === 'skipped') errline(io, 'note: add --yes to also set up autostart, shell completion, and the agent skill (or run `tunlite install service|skill|completion`).');
   }
   return exit;
 }

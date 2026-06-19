@@ -70,29 +70,45 @@ irm https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/bootstrap.ps1
 `tunlite install` copies the runtime to a fixed directory and writes a launcher that
 **pins node's absolute path** (so switching nvm/fnm versions won't break it), then asks
 whether to register login autostart, install the agent skill, and enable shell
-completion. It also writes a short `tun` alias when that name is free. **Windows
-(autostart, launcher, PATH) is beta** — macOS/Linux are the CI-tested platforms.
+completion. Pass `-y` to say yes to all without prompting (for scripts/CI); with no
+`-y` and no terminal it just anchors. To set up one piece on its own, use
+`tunlite install service` / `install skill` / `install completion`. It also writes a
+short `tun` alias when that name is free. **Windows (autostart, launcher, PATH) is
+beta** — macOS/Linux are the CI-tested platforms.
 
 ## Quick start
 
 ```bash
-# --local = your machine's side, --remote = the server's side; the subcommand decides who listens.
-tunlite add local   web-8080 --to user@server --remote 80 --local 8080   # reach server's :80 at localhost:8080
-tunlite add dynamic px-1080  --to user@server                            # SOCKS5 proxy (local 1080)
-tunlite add remote  rev-9000 --to user@server --local 3000 --remote 9000 # expose local 3000 as server:9000
+# ssh-native forward flags (repeatable — one tunnel can carry several):
+tunlite add web   --to me@host -L 8080:localhost:80   # reach the server's :80 at localhost:8080
+tunlite add rev   --to me@host -R 9000:localhost:3000 # expose local 3000 as server:9000
+tunlite add socks --to me@host -D 1080                # SOCKS5 proxy (local 1080)
 
-tunlite up                 # start everything now (brings up the daemon; configures keys if needed)
 tunlite status             # aligned table: NAME STATE HOST TYPE ROUTE PID UP RESTARTS
-tunlite logs web-8080 -f   # follow logs
+tunlite logs web -f        # follow logs
 tunlite doctor             # health check: why a tunnel won't connect
 ```
 
-When the target isn't passwordless yet, running `tunlite up` in a terminal prompts for
+> **Upgrading from 0.9.x? 0.10.0 is a breaking release.** Run `tunlite update` (or
+> `npx tunlite@latest install`). Your existing tunnel config keeps working; the *commands*
+> changed:
+> - **Forwards are ssh-native:** `add <name> --to host -L 8080:localhost:80 -D 1080`. The old
+>   `add local … --remote/--local` and the separate `forward` command are gone — edit with
+>   `set <name> -L/-R/-D …`.
+> - **`up`/`down` → `enable`/`disable`,** and the action verbs now need a target:
+>   `enable <name>`, `--tag <label>`, or `enable all`. A retired or mistyped verb suggests
+>   the right one (`tunlite up` → "did you mean `enable`?").
+> - **`install` is one guided command** (`install` / `install -y`); the `--service`/`--skill`/
+>   `--completion` flags are gone — set up one piece with `install service|skill|completion`.
+>
+> Check your version with `tunlite --version`.
+
+When the target isn't passwordless yet, running `tunlite enable <name>` in a terminal prompts for
 the password once and installs your key. Or do it explicitly: `tunlite check user@server`
 (exit 0 = already passwordless) / `tunlite setup-key user@server`.
 
 **Autostart (optional):** `tunlite install service` registers the daemon to start at
-login (and restart on crash). It also starts everything right away, so it *replaces* `up`
+login (and restart on crash). It also starts everything right away, so it *replaces* `enable`
 when you want tunnels up persistently — you don't need both.
 
 ## Update
@@ -112,9 +128,9 @@ a git checkout it points you to `git pull`, and from an `npm i -g` install to
 ## Commands
 
 ```
-add local|remote|dynamic   define a tunnel        set / rm / rename     edit / delete / rename
-forward list|add|rm        forwards per tunnel    list [--tag T]        list tunnels
-up / down / restart        control (name|--tag|all)
+add <name> -L/-R/-D …      define a tunnel        set / rm / rename     edit / delete / rename
+list [--tag T]             list tunnels           run --to … -L/-R/-D …   daemon-less foreground tunnel
+enable / disable / restart control (name|--tag|all)
 status / logs / monitor    inspect (table · follow · live dashboard)
 doctor                     why a tunnel won't connect
 check / setup-key          probe / install passwordless access
@@ -128,11 +144,16 @@ Run `tunlite help` or any command with `--help` for full flags, or see the
 [documentation](https://tunlite.dev/) for jump hosts (`--jump`),
 tags (`--tag`), the webhook channels/events, and shell completion.
 
-**Forwarding model:** each `add` defines one forward (a tunnel can carry several via
-`forward add`). `--local` always means *your* side, `--remote` the *server's* side; the
-subcommand picks who listens — `local` (reach a remote service locally), `remote` (expose
-a local service on the server), `dynamic` (a local SOCKS5 proxy). The SSH port goes on the
-target (`--to user@host:2222`, default 22).
+**Forwarding model:** forwards use the standard ssh flags, and they're repeatable — one
+tunnel can carry several:
+- `-L [bind:]PORT:HOST:HOSTPORT` — **local forward**: reach a remote service on your machine.
+- `-R [bind:]PORT:HOST:HOSTPORT` — **remote forward**: expose a local service on the server.
+- `-D [bind:]PORT` — **dynamic**: a local SOCKS5 proxy.
+
+The optional `bind:` prefix is the listen address — default loopback; use `0.0.0.0` to
+expose the listener to your LAN. Bracket IPv6 addresses (`[::1]`). The SSH port goes on the
+target (`--to user@host:2222`, default 22). Editing a tunnel's forwards is `set <name>`:
+passing any `-L/-R/-D` **replaces the whole forward set** (`set` is the sole forward editor).
 
 **Exit codes** (add `--json` to any command): `0` ok · `2` usage · `3` not found ·
 `4` needs key · `5` can't reach daemon · `1` other.
@@ -148,8 +169,23 @@ Three roles, each with one job:
 | **service** (`install service`) | a launchd/systemd/Task Scheduler entry | Keeps the **daemon** alive — starts it at boot, restarts on crash. |
 
 `config.json` is the single source of truth. The OS service keeps the daemon alive, the
-daemon keeps every tunnel alive. Day to day you only need `add` → `up` → `status`/`logs`,
+daemon keeps every tunnel alive. Day to day you only need `add` → `enable` → `status`/`logs`,
 plus `install service` once for autostart.
+
+## Daemon-less: `run`
+
+For containers and `systemd` entrypoints where a background daemon doesn't fit, `run`
+supervises one tunnel in the **foreground** (auto-reconnect, keepalive) and stays attached
+until you stop it — no daemon, no `config.json` entry:
+
+```sh
+tunlite run --to me@host -L 8080:localhost:80
+tunlite run --to me@host -R 9000:localhost:3000 --name rev --json --exit-on-failure
+```
+
+`--name` labels the tunnel for status lines (defaults to the target host). `--json` emits NDJSON state lines on
+stdout (one JSON object per state change). `--exit-on-failure` exits non-zero instead of
+retrying — `needs-auth` → `4`, `blocked`/`failed` → `1` — so a supervisor restarts it.
 
 ## For agents
 

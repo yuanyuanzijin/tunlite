@@ -7,7 +7,7 @@
 const os = require('os');
 const config = require('../config');
 const { VERSION } = require('../version');
-const { EXIT, parseFlags, jsonOut, line, errline } = require('../cli-core');
+const { EXIT, fail, parseFlags, jsonOut, line, errline, failUnknown } = require('../cli-core');
 const { reloadIfRunning } = require('../selection');
 
 // Deep-copy an `alerts` block with the webhook url redacted, for display/export.
@@ -38,12 +38,12 @@ async function webhook(args, io, opts) {
   if (sub === 'set') {
     const { flags, positionals } = parseFlags(args.slice(1), { value: ['--events', '--channel'] });
     const url = positionals[0];
-    if (!url) { errline(io, 'usage: tunlite webhook set <url> [--channel <id>] [--events <list>]'); return EXIT.USAGE; }
-    if (!/^https?:\/\//i.test(url)) { errline(io, `invalid webhook url "${url}" (must be http(s)://...)`); return EXIT.USAGE; }
+    if (!url) { fail('usage: tunlite webhook set <url> [--channel <id>] [--events <list>]'); }
+    if (!/^https?:\/\//i.test(url)) { fail(`invalid webhook url "${url}" (must be http(s)://...)`); }
     let channel; let source;
     if (flags['--channel'] !== undefined) {
       if (!channels.KNOWN_CHANNELS.includes(flags['--channel'])) {
-        errline(io, `unknown channel "${flags['--channel']}" (known: ${channels.KNOWN_CHANNELS.join(', ')})`); return EXIT.USAGE;
+        fail(`unknown channel "${flags['--channel']}" (known: ${channels.KNOWN_CHANNELS.join(', ')})`);
       }
       channel = flags['--channel']; source = 'from --channel';
     } else {
@@ -51,7 +51,7 @@ async function webhook(args, io, opts) {
     }
     if (flags['--events'] !== undefined) {
       try { w.events = config.expandEvents(flags['--events'].split(',')); }
-      catch (e) { errline(io, e.message); return EXIT.USAGE; }
+      catch (e) { fail(e.message); }
     }
     w.url = url; w.channel = channel; w.enabled = true;
     config.save(cfg, opts.configFile); // re-validates the alerts shape
@@ -64,7 +64,7 @@ async function webhook(args, io, opts) {
   }
 
   if (sub === 'on' || sub === 'off') {
-    if (sub === 'on' && !w.url) { errline(io, 'no webhook url set (run: tunlite webhook set <url>)'); return EXIT.USAGE; }
+    if (sub === 'on' && !w.url) { fail('no webhook url set (run: tunlite webhook set <url>)'); }
     w.enabled = (sub === 'on');
     config.save(cfg, opts.configFile);
     const reloaded = await reloadIfRunning();
@@ -75,10 +75,10 @@ async function webhook(args, io, opts) {
 
   if (sub === 'events') {
     const list = args.slice(1);
-    if (!list.length) { errline(io, 'usage: tunlite webhook events <down,recovered,… | tunnel | daemon | all | none>'); return EXIT.USAGE; }
+    if (!list.length) { fail('usage: tunlite webhook events <down,recovered,… | tunnel | daemon | all | none>'); }
     let events;
     try { events = config.expandEvents(list.join(',').split(',')); }
-    catch (e) { errline(io, e.message); return EXIT.USAGE; }
+    catch (e) { fail(e.message); }
     w.events = events;
     config.save(cfg, opts.configFile);
     const reloaded = await reloadIfRunning();
@@ -88,7 +88,7 @@ async function webhook(args, io, opts) {
   }
 
   if (sub === 'test') {
-    if (!w.url) { errline(io, 'no webhook configured (set one: tunlite webhook set <url>)'); return EXIT.USAGE; }
+    if (!w.url) { fail('no webhook configured (set one: tunlite webhook set <url>)'); }
     const { defaultPost } = require('../alerter');
     const ch = channels.resolve(w.channel);
     const payload = {
@@ -107,8 +107,7 @@ async function webhook(args, io, opts) {
     }
   }
 
-  errline(io, `unknown webhook subcommand: ${sub}`);
-  return EXIT.USAGE;
+  failUnknown('webhook subcommand', sub, ['status', 'set', 'on', 'off', 'events', 'test']);
 }
 
 module.exports = { webhook, redactAlerts };

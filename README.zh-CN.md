@@ -66,28 +66,40 @@ irm https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/bootstrap.ps1
 
 `tunlite install` 会把运行时复制到固定目录,并写一个**钉死 node 绝对路径**的启动器
 (这样 nvm/fnm 切版本也不会让它失效),然后逐项询问是否注册开机自启、安装 agent skill、
-启用 shell 补全。`tun` 这个短名空闲时也会顺带写一个。**Windows(自启 / 启动器 / PATH)
-为 beta** —— macOS/Linux 是经 CI 测试的主力平台。
+启用 shell 补全。加 `-y` 可一口气全装、不再询问(适合脚本 / CI);不加 `-y` 又没有终端时
+只做"落地"。想单独装某一件,用 `tunlite install service` / `install skill` /
+`install completion`。`tun` 这个短名空闲时也会顺带写一个。**Windows(自启 / 启动器 /
+PATH)为 beta** —— macOS/Linux 是经 CI 测试的主力平台。
 
 ## 快速开始
 
 ```bash
-# --local = 你这台机器的一侧,--remote = 服务器一侧;由子命令决定谁监听。
-tunlite add local   web-8080 --to user@server --remote 80 --local 8080   # 在 localhost:8080 访问服务器的 :80
-tunlite add dynamic px-1080  --to user@server                            # SOCKS5 代理(本地 1080)
-tunlite add remote  rev-9000 --to user@server --local 3000 --remote 9000 # 把本地 3000 暴露为服务器:9000
+# 转发用原生 ssh 标志(可重复 —— 一条隧道可带多个):
+tunlite add web   --to me@host -L 8080:localhost:80   # 在 localhost:8080 访问服务器的 :80
+tunlite add rev   --to me@host -R 9000:localhost:3000 # 把本地 3000 暴露为服务器:9000
+tunlite add socks --to me@host -D 1080                # SOCKS5 代理(本地 1080)
 
-tunlite up                 # 立刻全部启动(拉起守护进程,需要时配密钥)
 tunlite status             # 对齐表格:NAME STATE HOST TYPE ROUTE PID UP RESTARTS
-tunlite logs web-8080 -f   # 跟随日志
+tunlite logs web -f        # 跟随日志
 tunlite doctor             # 体检:为什么连不上
 ```
 
-目标还没免密时,在终端跑 `tunlite up` 会让你输一次密码并自动装公钥。也可显式来:
+> **从 0.9.x 升级?0.10.0 是破坏性版本。** 跑 `tunlite update`(或 `npx tunlite@latest install`)。
+> 已有的隧道配置照常能用,变的是**命令**:
+> - **转发改成 ssh 原生写法:**`add <名字> --to host -L 8080:localhost:80 -D 1080`。旧的
+>   `add local … --remote/--local` 和单独的 `forward` 命令都没了 —— 改转发用 `set <名字> -L/-R/-D …`。
+> - **`up`/`down` → `enable`/`disable`,** 而且动作动词现在必须指明对象:`enable <名字>`、
+>   `--tag <标签>` 或 `enable all`。打错或用了退役的词会提示正确的(`tunlite up` → "did you mean `enable`?")。
+> - **`install` 合并成一条引导式命令**(`install` / `install -y`);`--service`/`--skill`/`--completion`
+>   这些旗标没了 —— 单独装某一块用 `install service|skill|completion`。
+>
+> 用 `tunlite --version` 确认版本。
+
+目标还没免密时,在终端跑 `tunlite enable <名字>` 会让你输一次密码并自动装公钥。也可显式来:
 `tunlite check user@server`(退出 0 = 已免密)/ `tunlite setup-key user@server`。
 
 **开机自启(可选):**`tunlite install service` 把守护进程注册成登录自启(崩溃也会拉起)。
-它**当场也会把一切启动起来**,所以想让隧道持久常驻时,它**替代** `up` —— 两者不用都做。
+它**当场也会把一切启动起来**,所以想让隧道持久常驻时,它**替代** `enable` —— 两者不用都做。
 
 ## 升级
 
@@ -105,9 +117,9 @@ tunlite update --check      # 只比对当前与最新,不做改动
 ## 命令一览
 
 ```
-add local|remote|dynamic   定义隧道              set / rm / rename     改 / 删 / 重命名
-forward list|add|rm        管理一条隧道的多个转发  list [--tag T]        列出隧道
-up / down / restart        控制(名字|--tag|全部)
+add <name> -L/-R/-D …      定义隧道              set / rm / rename     改 / 删 / 重命名
+list [--tag T]             列出隧道              run --to … -L/-R/-D …   无守护进程的前台隧道
+enable / disable / restart 控制(名字|--tag|全部)
 status / logs / monitor    查看(表格 · 跟随 · 实时面板)
 doctor                     为什么隧道连不上
 check / setup-key          探测 / 安装免密访问
@@ -121,10 +133,15 @@ update                     从 GitHub 自更新
 webhook 的 channel/事件、shell 补全等细节见
 [文档站](https://tunlite.dev/)。
 
-**转发模型:**每个 `add` 定义一个转发(一条隧道可用 `forward add` 携带多个)。`--local`
-永远指**你这侧**、`--remote` 永远指**服务器侧**,由子命令决定谁监听 —— `local`(在本地访问
-远端服务)、`remote`(把本地服务暴露到服务器)、`dynamic`(本地 SOCKS5 代理)。SSH 端口写在
-目标上(`--to user@host:2222`,默认 22)。
+**转发模型:**转发直接用原生 ssh 标志,且可重复 —— 一条隧道可带多个:
+- `-L [bind:]PORT:HOST:HOSTPORT` —— **本地转发**:在本地访问远端服务。
+- `-R [bind:]PORT:HOST:HOSTPORT` —— **远程转发**:把本地服务暴露到服务器。
+- `-D [bind:]PORT` —— **动态**:本地 SOCKS5 代理。
+
+可选的 `bind:` 前缀是监听地址 —— 默认只监听本机回环;用 `0.0.0.0` 把监听暴露到局域网。
+IPv6 地址要用方括号(`[::1]`)。SSH 端口写在目标上(`--to user@host:2222`,默认 22)。
+改一条隧道的转发用 `set <name>`:只要带上任意 `-L/-R/-D` 就会**替换整组转发**
+(`set` 是唯一的转发编辑入口)。
 
 **退出码**(任意命令可加 `--json`):`0` 成功 · `2` 用法 · `3` 没找到 · `4` 缺密钥 ·
 `5` 连不上守护进程 · `1` 其它。
@@ -140,7 +157,21 @@ webhook 的 channel/事件、shell 补全等细节见
 | **服务**(`install service`) | 一条 launchd/systemd/计划任务条目 | 保活**守护进程** —— 开机拉起、崩溃重启。 |
 
 `config.json` 是唯一事实来源。系统服务保活守护进程,守护进程保活每条隧道。日常你只需
-`add` → `up` → `status`/`logs`,想要开机自启再 `install service` 一次。
+`add` → `enable` → `status`/`logs`,想要开机自启再 `install service` 一次。
+
+## 无守护进程:`run`
+
+容器、`systemd` 入口这类不方便跑后台守护进程的场景,用 `run` 在**前台**监管一条隧道
+(自动重连、keepalive),一直挂着直到你停止它 —— 不起守护进程,也不写进 `config.json`:
+
+```sh
+tunlite run --to me@host -L 8080:localhost:80
+tunlite run --to me@host -R 9000:localhost:3000 --name rev --json --exit-on-failure
+```
+
+`--name` 为该临时隧道设置标签(默认使用目标主机名)。`--json` 在 stdout 输出 NDJSON 状态行(每次状态变化
+一行 JSON)。`--exit-on-failure` 失败即以非零码退出而非重试 —— `needs-auth` → `4`、
+`blocked`/`failed` → `1` —— 方便上层 supervisor 重启。
 
 ## 给 Agent 用
 

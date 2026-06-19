@@ -47,3 +47,13 @@ test('libDir under TUNLITE_HOME is <root>/lib', () => {
     if (prev === undefined) delete process.env.TUNLITE_HOME; else process.env.TUNLITE_HOME = prev;
   }
 });
+
+test('lockDir under TUNLITE_HOME is <root>/data/locks', () => {
+  const prev = process.env.TUNLITE_HOME;
+  process.env.TUNLITE_HOME = '/tmp/tllocks';
+  try {
+    assert.equal(paths.lockDir(), path.join('/tmp/tllocks', 'data', 'locks'));
+  } finally {
+    if (prev === undefined) delete process.env.TUNLITE_HOME; else process.env.TUNLITE_HOME = prev;
+  }
+});

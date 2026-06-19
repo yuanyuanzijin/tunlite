@@ -86,18 +86,16 @@
         <span class="tt">tunlite — ssh tunnels</span>
       </div>
       <div class="term-body">
-        <div class="ln cmd" style="animation-delay:.05s">tunlite add local web-8080 --to deploy@app01 --remote 80 --local 8080</div>
-        <div class="ln ok"  style="animation-delay:.18s">  ✓ added web-8080   local  :8080 → app01:80</div>
-        <div class="ln cmd" style="animation-delay:.32s">tunlite up</div>
-        <div class="ln ok"  style="animation-delay:.45s">  ✓ daemon started · enabled 3 · 3 up</div>
-        <div class="ln cmd" style="animation-delay:.6s">tunlite status</div>
-        <div class="term-table" style="animation-delay:.72s">
+        <div class="ln cmd" style="animation-delay:.05s">tunlite add web-8080 --to deploy@app01 -L 8080:localhost:80</div>
+        <div class="ln ok"  style="animation-delay:.18s">  ✓ added web-8080   local  :8080 → app01:80 · daemon picked it up</div>
+        <div class="ln cmd" style="animation-delay:.34s">tunlite status</div>
+        <div class="term-table" style="animation-delay:.46s">
           <span class="tc th">NAME</span><span class="tc th">STATE</span><span class="tc th">HOST</span><span class="tc th">TYPE</span><span class="tc th">ROUTE</span><span class="tc th">PID</span><span class="tc th">UP</span><span class="tc th">RESTARTS</span>
-          <span class="tc">web-8080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">local</span><span class="tc">:8080 → :80</span><span class="tc">41207</span><span class="tc">2h14m</span><span class="tc">0</span>
+          <span class="tc">web-8080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">local</span><span class="tc">:8080 → :80</span><span class="tc">41231</span><span class="tc">2s</span><span class="tc">0</span>
+          <span class="tc">rev-9000</span><span class="tc s-up">up</span><span class="tc s-host">edge02</span><span class="tc">remote</span><span class="tc">:9000 ← :3000</span><span class="tc">41209</span><span class="tc">1h02m</span><span class="tc s-r1">1</span>
           <span class="tc">px-1080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">dynamic</span><span class="tc">socks5 :1080</span><span class="tc">41208</span><span class="tc">2h14m</span><span class="tc">0</span>
-          <span class="tc">rev-9000</span><span class="tc s-up">up</span><span class="tc s-host">edge02</span><span class="tc">remote</span><span class="tc">:3000 → :9000</span><span class="tc">41209</span><span class="tc">1h02m</span><span class="tc s-r1">1</span>
         </div>
-        <div class="ln cmd cursor-ln" style="animation-delay:1.1s"></div>
+        <div class="ln cmd cursor-ln" style="animation-delay:1.0s"></div>
       </div>
     </div>
   </div>
@@ -179,15 +177,15 @@
       <div data-reveal>
         <p class="start-step"><span class="en">Define &amp; bring up</span><span class="zh">定义并启动</span></p>
 <pre class="start-pre"><span class="h"># reach server's :80 on your local :8080</span>
-<span class="c">$</span> tunlite add local web-8080 --to user@server --remote 80 --local 8080
-<span class="c">$</span> tunlite up
-<span class="c">$</span> tunlite status</pre>
+<span class="c">$</span> tunlite add web-8080 --to me@host -L 8080:localhost:80
+<span class="c">$</span> tunlite status
+<span class="c">$</span> tunlite logs web-8080 -f</pre>
       </div>
     </div>
 
     <p class="start-more" data-reveal style="margin-top:34px">
-      <span class="en">That's the whole flow. Everything else — forwards, jump hosts, tags, webhooks, the agent skill — is in the <a href="docs.html">full documentation →</a></span>
-      <span class="zh">整个流程就这些。其余的 —— 多转发、跳板机、标签、webhook、agent skill —— 都在<a href="docs.html">完整文档里 →</a></span>
+      <span class="en">That's the whole flow. Everything else — multi-forwards, daemon-less <code>run</code>, jump hosts, tags, webhooks, the agent skill — is in the <a href="docs.html">full documentation →</a></span>
+      <span class="zh">整个流程就这些。其余的 —— 多转发、无守护进程的 <code>run</code>、跳板机、标签、webhook、agent skill —— 都在<a href="docs.html">完整文档里 →</a></span>
     </p>
   </div>
 </section>

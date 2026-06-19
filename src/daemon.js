@@ -139,7 +139,7 @@ class Daemon {
           sshOptions: def.sshOptions, jump: def.jump, tags: def.tags,
           enabled: def.enabled, autoSetupKey: def.autoSetupKey,
           state: def.enabled ? STATE.IDLE : 'disabled',
-          pid: null, restarts: 0, uptimeMs: 0, lastError: null,
+          pid: null, restarts: 0, uptimeMs: 0, lastError: null, lastExitCode: null,
           forwards: def.forwards,
         });
       }

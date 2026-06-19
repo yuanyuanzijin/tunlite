@@ -28,13 +28,16 @@ function withHome(fn) {
   return Promise.resolve(fn(home)).then((v) => { restore(); return v; }, (e) => { restore(); throw e; });
 }
 
-test('export prints the current config (settings + tunnels) as JSON', async () => {
+test('export prints only tunnels as an importable {version, tunnels} doc', async () => {
   await withHome(async () => {
-    await run(['add', 'local', 'web-8080', '--to', 'me@h', '--remote', '80', '--local', '8080'], capture().io);
+    await run(['add', 'web-8080', '--to', 'me@h', '-L', '8080:localhost:80'], capture().io);
     const c = capture();
     assert.equal(await run(['export'], c.io), 0);
     const dump = JSON.parse(c.out());
-    assert.ok(dump.settings && dump.settings.alerts, 'export carries settings');
+    // export is the portable subset: tunnels only. Settings/alerts are
+    // machine-local and import never reads them, so they must NOT be emitted.
+    assert.ok(!('settings' in dump), 'export must not carry settings');
+    assert.equal(dump.version, 1);
     assert.equal(dump.tunnels.length, 1);
     assert.equal(dump.tunnels[0].name, 'web-8080');
   });
@@ -50,7 +53,7 @@ test('import adds new tunnels, skips same-name, overwrites with --force', async 
     config.save(src, file);
 
     // current config already has "a" pointing somewhere else
-    await run(['add', 'dynamic', 'a', '--to', 'old@host', '--local', '9999'], capture().io);
+    await run(['add', 'a', '--to', 'old@host', '-D', '9999'], capture().io);
 
     // default: "a" skipped, "b" added
     let c = capture();
@@ -77,7 +80,7 @@ test('import adds new tunnels, skips same-name, overwrites with --force', async 
 
 test('import of a missing file is a not-found error; malformed file leaves config untouched', async () => {
   await withHome(async (home) => {
-    await run(['add', 'dynamic', 'keep', '--to', 'me@h', '--local', '1080'], capture().io);
+    await run(['add', 'keep', '--to', 'me@h', '-D', '1080'], capture().io);
 
     const c1 = capture();
     assert.equal(await run(['import', path.join(home, 'nope.json')], c1.io), 3);

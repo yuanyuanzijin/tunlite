@@ -2,7 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { formatDuration, clockTime, stateStyle, serviceHealth, colorize, buildAddCommand } = require('../src/format');
+const format = require('../src/format');
+const { formatDuration, clockTime, stateStyle, serviceHealth, colorize, buildAddCommand } = format;
 
 test('stateStyle maps each state to a glyph + color, falls back for unknown', () => {
   assert.deepEqual(stateStyle('connected'), { glyph: '●', color: 'green', label: 'connected' });
@@ -48,49 +49,54 @@ test('clockTime formats a timestamp as local HH:MM:SS, zero-padded', () => {
   assert.equal(clockTime(new Date(2020, 0, 1, 9, 30, 0).getTime()), '09:30:00');
 });
 
-test('buildAddCommand: minimal local — default port, bind, host and listen port omitted', () => {
-  const cmd = buildAddCommand({
-    name: 'db-5432', host: 'root@db.internal', port: 22,
-    forwards: [{ type: 'local', bind: '127.0.0.1', srcPort: 5432, destHost: 'localhost', destPort: 5432 }],
-  });
-  assert.equal(cmd, 'tunlite add local db-5432 --to root@db.internal --remote 5432');
-});
-
-test('buildAddCommand: remote with SSH :port, identity, server bind, ssh-opt, disabled', () => {
-  const cmd = buildAddCommand({
-    name: 'tmux', host: 'root@example.com', port: 2222, identityFile: '~/.ssh/id_ed25519',
-    forwards: [{ type: 'remote', bind: '0.0.0.0', srcPort: 19999, destHost: 'localhost', destPort: 19999 }],
-    sshOptions: ['ServerAliveInterval=15'], enabled: false,
-  });
-  assert.equal(cmd,
-    'tunlite add remote tmux --to root@example.com:2222 --local 19999 --remote 0.0.0.0:19999 '
-    + '-i ~/.ssh/id_ed25519 --ssh-opt ServerAliveInterval=15 --disabled');
-});
-
-test('buildAddCommand: dynamic — default port+bind dropped, non-default bind kept', () => {
+test('buildAddCommand emits ssh-native multi-forward add', () => {
+  // single local
   assert.equal(
-    buildAddCommand({ name: 's', host: 'h', port: 22, forwards: [{ type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 }] }),
-    'tunlite add dynamic s --to h');
+    format.buildAddCommand({ name: 'db-5432', host: 'root@db.internal', forwards: [
+      { type: 'local', bind: '127.0.0.1', srcPort: 5432, destHost: 'localhost', destPort: 5432 },
+    ] }),
+    'tunlite add db-5432 --to root@db.internal -L 5432:localhost:5432');
+
+  // remote with non-default bind + non-22 ssh port + no-auto-key, two forwards
   assert.equal(
-    buildAddCommand({ name: 's', host: 'h', port: 22, forwards: [{ type: 'dynamic', bind: '0.0.0.0', srcPort: 1080 }] }),
-    'tunlite add dynamic s --to h --local 0.0.0.0:1080');
+    format.buildAddCommand({ name: 'tmux', host: 'root@example.com', port: 2222, autoSetupKey: false, forwards: [
+      { type: 'remote', bind: '0.0.0.0', srcPort: 19999, destHost: 'localhost', destPort: 19999 },
+      { type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 },
+    ] }),
+    'tunlite add tmux --to root@example.com:2222 -R 0.0.0.0:19999:localhost:19999 -D 1080 --no-auto-key');
+
+  // dynamic default + non-default bind
+  assert.equal(
+    format.buildAddCommand({ name: 's', host: 'h', forwards: [{ type: 'dynamic', bind: '0.0.0.0', srcPort: 1080 }] }),
+    'tunlite add s --to h -D 0.0.0.0:1080');
 });
 
-test('buildAddCommand: local with a distinct local port and --no-auto-key', () => {
-  const cmd = buildAddCommand({
-    name: 'web', host: 'u@h', port: 22, autoSetupKey: false,
-    forwards: [{ type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'localhost', destPort: 80 }],
-  });
-  assert.equal(cmd, 'tunlite add local web --to u@h --remote 80 --local 8080 --no-auto-key');
+test('buildAddCommand emits ssh-opt, --disabled, and shell-quotes special values', () => {
+  // sshOptions -> --ssh-opt, enabled:false -> --disabled, and a name with a
+  // space forces shellQuote's single-quoting (style verified against shellQuote).
+  assert.equal(
+    format.buildAddCommand({
+      name: 'my tunnel', host: 'me@host', enabled: false,
+      sshOptions: ['ServerAliveInterval=30'],
+      forwards: [{ type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'localhost', destPort: 80 }],
+    }),
+    "tunlite add 'my tunnel' --to me@host -L 8080:localhost:80 --ssh-opt ServerAliveInterval=30 --disabled");
 });
 
-test('buildAddCommand: values with spaces/specials get single-quoted', () => {
-  const cmd = buildAddCommand({
-    name: 'weird name', host: 'u@h', port: 22, forwards: [],
-    sshOptions: ['ProxyCommand=ssh -W %h:%p jump'],
-  });
-  assert.match(cmd, /tunlite add 'weird name' --to u@h/);
-  assert.match(cmd, /--ssh-opt 'ProxyCommand=ssh -W %h:%p jump'/);
+test('forwardLabel renders a readable one-liner', () => {
+  assert.match(format.forwardLabel({ type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'ex', destPort: 80 }), /local.*127\.0\.0\.1:8080 → ex:80/);
+  assert.match(format.forwardLabel({ type: 'remote', bind: '0.0.0.0', srcPort: 9000, destHost: 'localhost', destPort: 3000 }), /remote.*0\.0\.0\.0:9000 ← localhost:3000/);
+  assert.match(format.forwardLabel({ type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 }), /dynamic.*1080/);
+});
+
+test('forwardToFlag brackets IPv6 bind and host (round-trips via parseForward)', () => {
+  const ssh = require('../src/ssh');
+  const f = { type: 'local', bind: '::1', srcPort: 8080, destHost: 'fe80::1', destPort: 80 };
+  const flag = format.forwardToFlag(f); // e.g. "-L [::1]:8080:[fe80::1]:80"
+  assert.match(flag, /-L \[::1\]:8080:\[fe80::1\]:80/);
+  // re-parse the emitted spec and confirm it matches the original forward
+  const spec = flag.split(' ')[1];
+  assert.deepEqual(ssh.parseForward('-L', spec), f);
 });
 
 const {
@@ -120,7 +126,8 @@ test('forwardType/forwardRoute expose the real type and endpoints', () => {
   assert.equal(forwardRoute(LOCAL.forwards[0]), '127.0.0.1:8080 → 10.0.0.5:80');
   assert.equal(forwardRoute(SOCKS.forwards[0]), '127.0.0.1:1080');
   assert.equal(forwardTypes(SOCKS), 'dynamic');
-  assert.equal(forwardRoutes(REMOTE), '0.0.0.0:9000 → localhost:3000');
+  // remote flips the arrow (`←`) so it points at the server side; endpoints keep order
+  assert.equal(forwardRoutes(REMOTE), '0.0.0.0:9000 ← localhost:3000');
 });
 
 test('TUNNEL_COLUMNS headers and order', () => {
@@ -173,4 +180,16 @@ test('checkStyle maps statuses to glyph+color', () => {
   assert.deepEqual(checkStyle('fail'), { glyph: '✗', color: 'red' });
   assert.deepEqual(checkStyle('info'), { glyph: '·', color: 'dim' });
   assert.deepEqual(checkStyle('skip'), { glyph: '·', color: 'dim' });
+});
+
+test('blocked state is styled red with its own glyph', () => {
+  const s = stateStyle('blocked');
+  assert.equal(s.color, 'red');
+  assert.equal(s.label, 'blocked');
+  assert.ok(s.glyph && s.glyph !== stateStyle('failed').glyph,
+    'blocked should have a distinct glyph from failed');
+});
+
+test('serviceHealth is red when any tunnel is blocked', () => {
+  assert.equal(serviceHealth(true, [{ state: 'connected' }, { state: 'blocked' }]), 'red');
 });

@@ -63,7 +63,7 @@ test('CLI: completion names prints bare tunnel names, one per line', async () =>
   const prev = process.env.TUNLITE_HOME;
   process.env.TUNLITE_HOME = home;
   try {
-    await run(['add', 'dynamic', 'web-8080', '--to', 'me@h', '--local', '1080'], capture().io);
+    await run(['add', 'web-8080', '--to', 'me@h', '-D', '1080'], capture().io);
     const c = capture();
     assert.equal(await run(['completion', 'names'], c.io), 0);
     assert.equal(c.out().trim(), 'web-8080');
@@ -206,23 +206,21 @@ test('bare uninstall strips completion from known shells', async () => {
   }
 });
 
-test('bare install offers completion: TUNLITE_COMPLETION=yes wires the detected shell', async () => {
+test('install -y wires shell completion for the detected shell', async () => {
   if (process.platform === 'win32') return;
   const home = tmpHome();
   const saved = {
     HOME: process.env.HOME, SHELL: process.env.SHELL,
     TUNLITE_HOME: process.env.TUNLITE_HOME, TUNLITE_FAKE_AUTOSTART: process.env.TUNLITE_FAKE_AUTOSTART,
-    TUNLITE_COMPLETION: process.env.TUNLITE_COMPLETION,
   };
   process.env.HOME = home;
   process.env.SHELL = '/bin/zsh';
   process.env.TUNLITE_HOME = home;
   process.env.TUNLITE_FAKE_AUTOSTART = '1';
-  process.env.TUNLITE_COMPLETION = 'yes';
   try {
     const c = capture();
     const code = await run([
-      'install', '--no-service', '--no-skill',
+      'install', '--yes',
       '--bin', path.join(home, 'bin'), '--node', process.execPath, '--json',
     ], c.io);
     assert.equal(code, 0);

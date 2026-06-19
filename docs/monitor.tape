@@ -32,11 +32,11 @@ Hide
 Type 'mkdir -p /tmp/tunlite-demo && cp fixtures/demo-ssh.js /tmp/tunlite-demo/ssh && chmod +x /tmp/tunlite-demo/ssh' Enter
 Type 'export TUNLITE_CONFIG=/tmp/_mon_cfg.json TUNLITE_SOCKET=/tmp/_mon_sock TUNLITE_FAKE_AUTOSTART=1 TUNLITE_SSH=/tmp/tunlite-demo/ssh' Enter
 Type 'tunlite daemon stop >/dev/null 2>&1; rm -f /tmp/_mon_cfg.json /tmp/_mon_sock' Enter
-Type 'tunlite add local   web-8080   --to me@web    --remote 80   --local 8080 >/dev/null' Enter
-Type 'tunlite add local   db-5432    --to me@db     --remote 5432 --local 5432 >/dev/null' Enter
-Type 'tunlite add dynamic socks-1080 --to me@bastion                           >/dev/null' Enter
-Type 'tunlite add local   api-3000   --to me@flap   --remote 3000 --local 3000 >/dev/null' Enter
-Type 'tunlite up >/dev/null 2>&1' Enter
+Type 'tunlite add web-8080   --to me@web     -L 8080:localhost:80   >/dev/null' Enter
+Type 'tunlite add db-5432    --to me@db      -L 5432:localhost:5432 >/dev/null' Enter
+Type 'tunlite add socks-1080 --to me@bastion -D 1080               >/dev/null' Enter
+Type 'tunlite add api-3000   --to me@flap    -L 3000:localhost:3000 >/dev/null' Enter
+Type 'tunlite enable >/dev/null 2>&1' Enter
 Sleep 3s
 Type 'clear' Enter
 Show

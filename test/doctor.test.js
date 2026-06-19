@@ -53,7 +53,7 @@ test('tunnels configured but daemon down => daemon fail', async () => {
     daemonStatus: async () => ({ running: false, tunnels: [] }),
   }) });
   assert.equal(find(r, 'daemon').status, 'fail');
-  assert.match(find(r, 'daemon').fix, /tunlite up/);
+  assert.match(find(r, 'daemon').fix, /tunlite enable/);
 });
 
 test('per-tunnel auth fail suggests setup-key', async () => {

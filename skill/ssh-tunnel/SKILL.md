@@ -10,6 +10,12 @@ background daemon that auto-reconnects and can be registered to OS startup.
 **Always pass `--json`** for machine-readable output, and **branch on the exit
 code** rather than parsing prose.
 
+> **Requires tunlite 0.10.x.** This skill drives the ssh-native interface
+> (`-L`/`-R`/`-D`, the `run` command, `set` as the forward editor). If `tunlite
+> --version` reports 0.9.x or earlier, that interface does not exist there
+> (forwards used `add local … --remote/--local` and a `forward` command, both
+> removed in 0.10.0) — upgrade with `tunlite update`.
+
 ## Exit codes (stable — branch on these)
 
 | code | meaning | what to do |
@@ -18,26 +24,31 @@ code** rather than parsing prose.
 | 2 | usage error | fix the command syntax |
 | 3 | not found | the named tunnel/host doesn't exist |
 | 4 | needs-auth | target is not passwordless — see "Passwordless" below |
-| 5 | daemon unreachable | run `tunlite daemon start` (or `tunlite up` auto-starts it) |
+| 5 | daemon unreachable | run `tunlite daemon start` (or `tunlite enable` auto-starts it) |
 | 1 | other error | read the JSON `error` field |
 
 ## Core workflow
 
 ```bash
-# 1. Define a tunnel — one forward each. --local = your machine, --remote = the
-#    server side; the subcommand picks who listens. Address is [host:]port.
-tunlite add local   web-8080 --to user@host --remote 80 --local 8080 --json  # reach server's :80 locally
-tunlite add dynamic px-1080  --to user@host --json                           # local SOCKS5 (default 1080)
-tunlite add remote  rev-3000 --to user@host --local 3000 --remote 9000 --json # expose local 3000 on server:9000
+# 1. Define a tunnel — forwards use ssh-native repeatable flags -L / -R / -D.
+#    Spec is [bind:]PORT:HOST:HOSTPORT (-L/-R) or [bind:]PORT (-D). The name is a
+#    bare positional; the target rides in --to; at least one forward is required.
+tunlite add web-8080 --to user@host -L 8080:localhost:80 --json   # reach server's :80 at localhost:8080
+tunlite add rev-9000 --to user@host -R 9000:localhost:3000 --json # expose local 3000 on server:9000
+tunlite add px-1080  --to user@host -D 1080 --json                # local SOCKS5 proxy on :1080
+tunlite add multi    --to user@host -L 8080:localhost:80 -D 1080 --json  # several forwards on one tunnel
 #   SSH port rides in the target: --to user@host:2222
-#   a host: prefix = bind on the listening side (0.0.0.0 to expose) / target host on the other (default localhost)
+#   -L = reach a remote service locally; -R = expose a local service on the server; -D = local SOCKS5.
+#   a bind: prefix is the listen address (omit = localhost; 0.0.0.0 to expose on all interfaces);
+#   IPv6 literals must be bracketed, e.g. -L [::1]:8080:localhost:80
 #   options: -i <keyfile>  --jump [user@]bastion[:port]  --ssh-opt "-o Foo=bar"  --tag <label>  --disabled  --no-auto-key
-#   one tunnel can carry several forwards:  tunlite forward add <name> <local|remote|dynamic> ...
-#   change an existing tunnel in place:     tunlite set <name> --to user@newhost --json
-#   label tunnels and act on a group:       tunlite add ... --tag prod ;  tunlite up --tag prod --json
+#   change an existing tunnel in place (set is the SOLE forward editor):
+#     tunlite set <name> --to user@newhost --json          # edit connection only; forwards untouched
+#     tunlite set <name> -L 8080:localhost:80 -D 1080 --json   # REPLACE the whole forward set (destructive)
+#   label tunnels and act on a group:       tunlite add ... --tag prod ;  tunlite enable --tag prod --json
 
-# 2. Bring it up (enables it, probes passwordless, auto-starts the daemon)
-tunlite up web-8080 --json
+# 2. Turn it on (enables it, probes passwordless, auto-starts the daemon)
+tunlite enable web-8080 --json
 
 # 3. Enumerate definitions / check structured runtime state
 tunlite list --json          # defined tunnels (from config)
@@ -52,13 +63,14 @@ tunlite doctor web-8080 --json   # focus on one tunnel
 # 4. Rename / restart / take down / remove
 tunlite rename web web-prod-8080 --json   # rename (cleanly hands the live tunnel over)
 tunlite restart web --json                # bounce a running tunnel (no intent change)
-tunlite down web --json                   # stop + disable (won't come back on reboot)
+tunlite disable web --json                # stop + disable (won't come back on reboot)
 tunlite rm web --json                     # delete the definition entirely
 ```
 
 `state` values: `idle`, `starting`, `connected`, `retrying`, `needs-auth`,
-`failed`, `stopped`, `disabled`, `daemon-stopped`. Treat `connected` as success.
+`blocked`, `failed`, `stopped`, `disabled`, `daemon-stopped`. Treat `connected` as success.
 `retrying` is normal during a transient outage (the daemon backs off and reconnects).
+`blocked` = another tunnel already holds one of this tunnel's forward endpoints; it retries until that endpoint frees up.
 
 For a live, interactive view use `tunlite monitor` (top-style; start/stop/restart by key). `status --json` remains the scriptable one-shot.
 
@@ -87,7 +99,7 @@ isn't passwordless shows up as `state: "needs-auth"` and `tunlite status` exits 
   terminal.** As an agent you usually cannot type that password, so:
   - If a human is available, ask them to run `tunlite setup-key user@host`.
   - Otherwise confirm the host is already passwordless before adding the tunnel.
-- `tunlite up` will *attempt* setup automatically only when run in an interactive
+- `tunlite enable` will *attempt* setup automatically only when run in an interactive
   TTY with `autoSetupKey` on (the default). In non-interactive/agent contexts it
   will not prompt — it starts the tunnel and reports `needs-auth`.
 
@@ -121,10 +133,44 @@ tunlite daemon status --json  # {running, pid, version}
 tunlite daemon start|stop     # advanced/plumbing — you normally use up/down instead
 ```
 
-The daemon starts only via `tunlite up` (on demand) or `tunlite install service` (at
+The daemon starts only via `tunlite enable` (on demand) or `tunlite install service` (at
 login). Other commands won't start it; if it's down they exit `5` and tell you
 how. Note: with the service installed, `tunlite daemon stop` is temporary (the OS
 restarts it) — use `tunlite uninstall service` to stop for good.
+
+## Foreground one-shot: `run` (daemon-less, machine-readable)
+
+`run` brings up a **single** tunnel in the foreground, supervised but with **no
+daemon and no config** — it is built entirely from inline flags. This is the
+agent-friendly way to run one tunnel as a container / systemd entrypoint and watch
+its state: it never reads or writes the config file.
+
+```bash
+tunlite run --to user@host -L 8080:localhost:80 --json            # NDJSON state on stdout
+tunlite run --to user@host -D 1080 --name socks --exit-on-failure --json
+#   forwards: same -L / -R / -D as add/set (repeatable; at least one required)
+#   --name LABEL   self-reported name in the state output (defaults to the target host)
+#   --json         emit NDJSON state objects on stdout (one per line); else human lines on stderr
+#   --exit-on-failure   exit non-zero on a failure state instead of retrying forever
+#   common: -i <keyfile>  --jump [user@]bastion[:port]  --ssh-opt "-o Foo=bar"
+```
+
+- **State reporting:** with `--json`, each state transition is one NDJSON object on
+  **stdout**: `{ts, name, state, pid, restarts, uptimeMs, lastError, lastExitCode}`
+  — `ts` is epoch milliseconds; the other fields are the tunnel's changing state,
+  with the same names and `state` values as `tunlite status --json` (so one parser
+  fits both). Without `--json`, human-readable status lines go to **stderr**.
+- **Signals:** `SIGTERM`/`SIGINT` trigger a clean shutdown → exit `0`.
+- **Exit codes** (only enforced with `--exit-on-failure`; otherwise the supervisor
+  keeps retrying and only stops on a signal):
+  - `0` clean shutdown (signal) or normal stop
+  - `4` `needs-auth` (target not passwordless)
+  - `1` `blocked` / `failed` (e.g. listen port in use), or `ssh` binary not found
+  - `2` usage error (missing `--to`, no forward, or a bad target/jump/forward spec)
+- To keep one tunnel alive on this machine across reboots, prefer `add` + `up` +
+  `install service` (daemon-managed). Use `run` when something else (a container
+  runtime, systemd unit, CI job) owns the process lifecycle and you want the
+  tunnel's state streamed to that supervisor.
 
 ## Disconnect alerts (webhook)
 
@@ -161,25 +207,33 @@ and leaves the current config untouched.
 
 ## Tips / gotchas
 
-- `up`/`down` are persistent (they flip the tunnel's `enabled` flag and survive
+- `enable`/`disable` are persistent (they flip the tunnel's `enabled` flag and survive
   reboot). Use `restart` to bounce a running tunnel without changing intent.
-- Omitting the name (`tunlite up`, `tunlite status`, `tunlite down`) targets **all**
-  tunnels.
+- The action verbs `enable`/`disable`/`restart` must name a target — a tunnel name,
+  `--tag <label>`, or the literal `all` (e.g. `tunlite enable all`). Bare (no target)
+  is a usage error (exit 2), not a silent "all" — `all` is a reserved tunnel name. The
+  read-only views `status`/`list`/`monitor` still default to all when bare.
+- A mistyped command suggests the nearest one (`tunlite stauts` → "did you mean
+  `status`?"); the old `up`/`down` point at `enable`/`disable`.
 - Tags group tunnels: `--tag <label>` (repeatable) on `add`/`set` labels a tunnel
-  (`set --no-tags` clears); `up`/`down`/`restart`/`status`/`list`/`monitor` accept
+  (`set --no-tags` clears); `enable`/`disable`/`restart`/`status`/`list`/`monitor` accept
   `--tag <label>` to act on every tunnel carrying it (multiple `--tag` = union). A
   name and `--tag` are mutually exclusive (exit 2); for the one-shot commands
-  (`up`/`down`/`restart`/`status`/`list`) a tag that matches nothing exits 3
+  (`enable`/`disable`/`restart`/`status`/`list`) a tag that matches nothing exits 3
   (`monitor` is a live view, so it just shows an empty dashboard instead).
   Tags are metadata only — they never change the ssh command. Each tunnel's
   `tags` array is in `list --json` / `status --json`.
-- Forwards: `add local <name> --to user@host --remote [host:]P [--local [host:]P]`
-  (reach a remote service locally; `--remote` required), `add remote <name> --to
-  user@host --local [host:]P [--remote [host:]P]` (expose a local service on the
-  server; `--local` required), `add dynamic <name> --to user@host [--local [host:]P]`
-  (local SOCKS5, default 1080). `--local`/`--remote` always name your-machine /
-  server-side; a `host:` is the bind address on the listening side (`0.0.0.0` to
-  expose) or the target host on the other side (default `localhost`).
+- Forwards use ssh-native flags on `add`/`set`/`run` (repeatable — one tunnel can
+  carry several): `-L [bind:]PORT:HOST:HOSTPORT` (reach a remote service locally:
+  you connect to `localhost:PORT`, it tunnels to `HOST:HOSTPORT` on the server
+  side), `-R [bind:]PORT:HOST:HOSTPORT` (expose a local service on the server: the
+  server listens on `PORT` and tunnels back to `HOST:HOSTPORT` reachable from your
+  machine), `-D [bind:]PORT` (local SOCKS5 proxy). A `bind:` prefix is the listen
+  address — omit it for `localhost`, write `0.0.0.0` to expose on all interfaces;
+  IPv6 literals must be bracketed (`[::1]`). `set <name> -L/-R/-D …` is the only
+  way to change a tunnel's forwards: passing any forward flag **replaces the whole
+  set** (destructive; the new set is echoed back), while `set` with no forward flag
+  leaves forwards untouched.
 - A `failed` state with an "address already in use" `lastError` means the listen
   port is taken — pick another port; the daemon won't hot-loop on it.
 - Relocate all state for testing/sandboxing with env vars: `TUNLITE_HOME`,

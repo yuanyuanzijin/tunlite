@@ -80,6 +80,41 @@ test('listeningPorts returns only local and dynamic', () => {
   ]);
 });
 
+test('forwardEndpoints keys local/dynamic by bind:port and remote by host:bind:port', () => {
+  const t = {
+    host: 'me@host',
+    forwards: [
+      { type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'ex', destPort: 80 },
+      { type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 },
+      { type: 'remote', bind: '127.0.0.1', srcPort: 9000, destHost: 'localhost', destPort: 3000 },
+    ],
+  };
+  assert.deepEqual(ssh.forwardEndpoints(t), [
+    'L:127.0.0.1:8080',
+    'L:127.0.0.1:1080',
+    'R:me@host:127.0.0.1:9000',
+  ]);
+});
+
+test('forwardEndpoints defaults an omitted bind to 127.0.0.1', () => {
+  const t = { host: 'h', forwards: [{ type: 'local', srcPort: 22, destHost: 'x', destPort: 22 }] };
+  assert.deepEqual(ssh.forwardEndpoints(t), ['L:127.0.0.1:22']);
+});
+
+test('endpointConflicts finds shared endpoints with other tunnels, skipping self', () => {
+  const cfg = { tunnels: [
+    { name: 'web', host: 'h1', forwards: [{ type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'x', destPort: 80 }] },
+    { name: 'api', host: 'h2', forwards: [{ type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 }] },
+  ] };
+  const dup = { name: 'web2', host: 'h3', forwards: [{ type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'y', destPort: 90 }] };
+  assert.deepEqual(ssh.endpointConflicts(cfg, dup), [{ key: 'L:127.0.0.1:8080', otherName: 'web' }]);
+
+  const free = { name: 'web3', host: 'h3', forwards: [{ type: 'local', bind: '127.0.0.1', srcPort: 7070, destHost: 'y', destPort: 90 }] };
+  assert.deepEqual(ssh.endpointConflicts(cfg, free), []);
+
+  assert.deepEqual(ssh.endpointConflicts(cfg, cfg.tunnels[0]), []);
+});
+
 test('probeAuth resolves ok on exit 0 (already passwordless)', async () => {
   process.env.FAKE_SSH_PROBE = '0';
   const r = await ssh.probeAuth('me@host', { sshBinary: FAKE_SSH });
@@ -227,4 +262,42 @@ test('setupKey accepts a normal public key (spawns the fallback ssh)', () => {
     cp.spawnSync = orig;
     kp.cleanup();
   }
+});
+
+test('parseForward -L/-R/-D round-trip with forwardArgs', () => {
+  const L = ssh.parseForward('-L', '8080:example.com:80');
+  assert.deepEqual(L, { type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'example.com', destPort: 80 });
+  assert.deepEqual(ssh.forwardArgs(L), ['-L', '127.0.0.1:8080:example.com:80']);
+
+  const L4 = ssh.parseForward('-L', '0.0.0.0:8080:db.int:5432');
+  assert.deepEqual(L4, { type: 'local', bind: '0.0.0.0', srcPort: 8080, destHost: 'db.int', destPort: 5432 });
+
+  const R = ssh.parseForward('-R', '9000:localhost:3000');
+  assert.deepEqual(R, { type: 'remote', bind: '127.0.0.1', srcPort: 9000, destHost: 'localhost', destPort: 3000 });
+
+  const D = ssh.parseForward('-D', '1080');
+  assert.deepEqual(D, { type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 });
+  const D2 = ssh.parseForward('-D', '0.0.0.0:1080');
+  assert.deepEqual(D2, { type: 'dynamic', bind: '0.0.0.0', srcPort: 1080 });
+});
+
+test('parseForward handles bracketed IPv6 and re-brackets via forwardArgs', () => {
+  const f = ssh.parseForward('-L', '[::1]:8080:[fe80::1]:80');
+  assert.deepEqual(f, { type: 'local', bind: '::1', srcPort: 8080, destHost: 'fe80::1', destPort: 80 });
+  assert.deepEqual(ssh.forwardArgs(f), ['-L', '[::1]:8080:[fe80::1]:80']);
+});
+
+test('parseForward normalizes * bind to 0.0.0.0', () => {
+  assert.equal(ssh.parseForward('-L', '*:8080:h:80').bind, '0.0.0.0');
+});
+
+test('parseForward rejects the tightened-out cases', () => {
+  assert.throws(() => ssh.parseForward('-L', '/tmp/x.sock:h:80'), /socket/i); // unix socket
+  assert.throws(() => ssh.parseForward('-R', '1080'), /host/i);               // bare -R (no target)
+  assert.throws(() => ssh.parseForward('-L', '8080:h'), /host/i);             // too few fields
+  assert.throws(() => ssh.parseForward('-L', '99999:h:80'), /1–65535/);       // port range
+  assert.throws(() => ssh.parseForward('-L', 'abc:h:80'), /invalid port/);    // non-numeric port
+  assert.throws(() => ssh.parseForward('-L', ':8080:h:80'), /empty bind/);    // empty explicit bind
+  assert.throws(() => ssh.parseForward('-L', '8080::80'), /empty host/);      // empty target host
+  assert.throws(() => ssh.parseForward('-D', ''), /needs a spec/);            // empty
 });

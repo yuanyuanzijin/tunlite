@@ -49,12 +49,72 @@ function buildArgs(tunnel, settings = {}, opts = {}) {
   return args;
 }
 
+// Bracket an address for an ssh forward spec only if it's an IPv6 literal.
+function brkt(h) { return h && h.includes(':') ? `[${h}]` : h; }
+
 function forwardArgs(f) {
   if (f.type === 'dynamic') {
-    return ['-D', `${f.bind || '127.0.0.1'}:${f.srcPort}`];
+    return ['-D', `${brkt(f.bind || '127.0.0.1')}:${f.srcPort}`];
   }
   const flag = f.type === 'remote' ? '-R' : '-L';
-  return [flag, `${f.bind || '127.0.0.1'}:${f.srcPort}:${f.destHost}:${f.destPort}`];
+  return [flag, `${brkt(f.bind || '127.0.0.1')}:${f.srcPort}:${brkt(f.destHost)}:${f.destPort}`];
+}
+
+// Split an ssh forward spec on ':' but keep bracketed IPv6 literals intact.
+function splitForwardSpec(spec) {
+  const out = [];
+  let cur = '';
+  let inBracket = false;
+  for (const ch of spec) {
+    if (ch === '[') { inBracket = true; cur += ch; }
+    else if (ch === ']') { inBracket = false; cur += ch; }
+    else if (ch === ':' && !inBracket) { out.push(cur); cur = ''; }
+    else cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
+// Parse ONE ssh-native forward spec into a forward object — the inverse of
+// forwardArgs(). flag is '-L' | '-R' | '-D'. Tightened to a host:port subset:
+// no unix sockets, IPv6 must be bracketed, -R must carry a target, ports
+// validated, bind normalized.
+function parseForward(flag, spec) {
+  if (spec === undefined || spec === null || spec === '') {
+    throw new Error(`${flag} needs a spec (e.g. ${flag} ${flag === '-D' ? '1080' : '8080:host:80'})`);
+  }
+  if (spec.includes('/')) throw new Error(`unix-domain-socket forwards are not supported: "${spec}"`);
+  const unbr = (s) => s.replace(/^\[(.+)\]$/, '$1');
+  const port = (v) => {
+    if (!/^\d+$/.test(v)) throw new Error(`invalid port "${v}" in "${spec}"`);
+    const n = Number(v);
+    if (n < 1 || n > 65535) throw new Error(`invalid port "${v}" in "${spec}" (expected 1–65535)`);
+    return n;
+  };
+  const normBind = (b) => {
+    if (b === '*') return '0.0.0.0';
+    if (b === '') throw new Error(`empty bind in "${spec}" — omit it for localhost, or write 0.0.0.0 to bind all interfaces`);
+    return unbr(b);
+  };
+  const host = (h) => {
+    const u = unbr(h);
+    if (u === '') throw new Error(`empty host in "${spec}"`);
+    return u;
+  };
+  const fields = splitForwardSpec(spec);
+  if (flag === '-D') {
+    if (fields.length === 1) return { type: 'dynamic', bind: '127.0.0.1', srcPort: port(fields[0]) };
+    if (fields.length === 2) return { type: 'dynamic', bind: normBind(fields[0]), srcPort: port(fields[1]) };
+    throw new Error(`-D wants [bind:]port, got "${spec}"`);
+  }
+  const type = flag === '-R' ? 'remote' : 'local';
+  if (fields.length === 3) {
+    return { type, bind: '127.0.0.1', srcPort: port(fields[0]), destHost: host(fields[1]), destPort: port(fields[2]) };
+  }
+  if (fields.length === 4) {
+    return { type, bind: normBind(fields[0]), srcPort: port(fields[1]), destHost: host(fields[2]), destPort: port(fields[3]) };
+  }
+  throw new Error(`${flag} wants [bind:]port:host:hostport (the host:hostport target is required), got "${spec}"`);
 }
 
 // Local listening ports we expect for a tunnel (for health probing).
@@ -62,6 +122,34 @@ function listeningPorts(tunnel) {
   return (tunnel.forwards || [])
     .filter((f) => f.type === 'local' || f.type === 'dynamic')
     .map((f) => ({ host: f.bind || '127.0.0.1', port: f.srcPort }));
+}
+
+// String keys for the bind resources a tunnel claims, for conflict detection.
+// local/dynamic listen locally -> L:<bind>:<port>; remote listens on the server
+// -> R:<host>:<bind>:<port> (host-scoped so the same remote port to different
+// servers does not false-conflict).
+function forwardEndpoints(tunnel) {
+  const keys = [];
+  for (const f of tunnel.forwards || []) {
+    const bind = f.bind || '127.0.0.1';
+    if (f.type === 'remote') keys.push(`R:${tunnel.host}:${bind}:${f.srcPort}`);
+    else keys.push(`L:${bind}:${f.srcPort}`); // local + dynamic
+  }
+  return keys;
+}
+
+// Static cross-check: which of `tunnel`'s endpoint keys are already claimed by a
+// DIFFERENT tunnel in the config. Returns [{ key, otherName }]. Pure; warn-only.
+function endpointConflicts(cfg, tunnel) {
+  const mine = new Set(forwardEndpoints(tunnel));
+  const clashes = [];
+  for (const other of (cfg && cfg.tunnels) || []) {
+    if (other.name === tunnel.name) continue;
+    for (const key of forwardEndpoints(other)) {
+      if (mine.has(key)) clashes.push({ key, otherName: other.name });
+    }
+  }
+  return clashes;
 }
 
 // Stderr signatures from `ssh -v`. Auth SUCCESS is announced the instant the
@@ -253,6 +341,9 @@ module.exports = {
   sshBinary,
   buildArgs,
   forwardArgs,
+  parseForward,
+  forwardEndpoints,
+  endpointConflicts,
   listeningPorts,
   probeAuth,
   commandExists,

@@ -158,6 +158,9 @@ function validateTunnel(t) {
   if (!t.name || !/^[A-Za-z0-9._-]+$/.test(t.name)) {
     throw new Error(`invalid tunnel name "${t.name}" (use letters, digits, . _ -)`);
   }
+  if (t.name === 'all') {
+    throw new Error('"all" is a reserved name (it selects every tunnel); pick another');
+  }
   if (!t.host || typeof t.host !== 'string') {
     throw new Error(`tunnel "${t.name}" missing host (user@host)`);
   }

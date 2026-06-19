@@ -9,6 +9,83 @@ release process.
 > tunlite debuted publicly at **0.9.0**. Earlier `0.x` releases were a private
 > prototype and are not part of this public history.
 
+## [0.10.0] - 2026-06-19
+
+### Changed (BREAKING)
+- Renamed the tunnel-control verbs `up`/`down` → `enable`/`disable`. They always
+  wrote the persistent `enabled` flag (a disabled tunnel stays down across daemon
+  restarts and reboots), so the new names match the rest of the vocabulary
+  (`--disabled` on `add`, the `disabled` state) and keep that persistent "intent"
+  axis cleanly separate from the runtime axis (`daemon start`/`stop`, which run or
+  stop the supervisor process now). The webhook `up`/`down` events and the monitor
+  arrow-key navigation are unchanged. Migration: `tunlite up [name]` →
+  `tunlite enable [name]`; `tunlite down [name]` → `tunlite disable [name]`.
+- The action verbs `enable`/`disable`/`restart` now require an explicit target — a
+  tunnel name, `--tag <label>`, or the literal `all` — instead of treating a bare verb
+  as "all". Bare `tunlite enable` (which read like "enable the tool" and silently
+  flipped every tunnel) is now a usage error (exit 2) pointing you to a target. `all`
+  is a reserved tunnel name. The read-only views `status`/`list`/`monitor` still
+  default to all. Migration: `tunlite enable` (no args) → `tunlite enable all`.
+- Forwards are now defined with ssh-native flags `-L`/`-R`/`-D` (repeatable),
+  shared by `add`, `set`, and `run`. `add` reshaped:
+  `tunlite add <name> --to user@host -L 8080:localhost:80 -D 1080`.
+  Migration: `add local <name> --remote 80 --local 8080` → `add <name> -L 8080:localhost:80`;
+  `add remote <name> --local 3000 --remote 9000` → `add <name> -R 9000:localhost:3000`;
+  `add dynamic <name> --local 1080` → `add <name> -D 1080`.
+- `install` is now a single guided entry point. Bare `tunlite install` anchors the
+  runtime and (in a terminal) asks whether to add autostart / shell completion /
+  the agent skill; `tunlite install -y` says yes to all; with no `-y` and no
+  terminal it only anchors. The per-step opt-in/opt-out flags
+  (`--service`/`--skill <dir>`/`--completion` and `--no-*`) and their env twins
+  (`TUNLITE_SERVICE`/`TUNLITE_SKILL`/`TUNLITE_COMPLETION`) are gone — to set up one
+  piece on its own, use the positional `install service|skill|completion`. Passing a
+  removed flag now exits 2 with guidance.
+- `export` now prints only your tunnels (`{ version, tunnels }`) — the exact shape
+  `import` reads — instead of the whole config. It previously also dumped the
+  `settings` block, but `import` only ever merges tunnels and never reads settings,
+  so the settings were redundant; worse, the webhook url in them was redacted to a
+  display form (`https://host/…`), so an `export`→`import` round-trip looked lossless
+  while silently carrying a corrupted, unusable url. Settings (backoff/keepalive
+  tuning, the webhook url + token) are machine-local and stay out of the portable
+  export. To see them, read `config.json` (path shown by `tunlite doctor`).
+
+### Added
+- `tunlite run` — a daemon-less, foreground, supervised tunnel for container /
+  systemd entrypoints (`--json` NDJSON state, `--exit-on-failure`).
+- `set <name> -L/-R/-D …` replaces a tunnel's whole forward set.
+- "Did you mean": a mistyped command or subcommand now suggests the nearest one
+  (`tunlite stauts` → "did you mean `status`?"), and the retired `up`/`down` (plus
+  `start`/`stop`) point at `enable`/`disable`. Covers the top-level commands and the
+  `daemon`/`webhook`/`install`/`uninstall` subverbs.
+- `all` as an explicit target for `enable`/`disable`/`restart` (e.g.
+  `tunlite enable all`) — every tunnel, stated rather than implied.
+- The route column (and the `add`/`set` echo) now points its arrow at the far
+  side: a local forward reads `:8080 → :80` and a remote forward `:9000 ← :3000`.
+  Endpoints keep ssh-flag order; the arrow direction alone distinguishes local
+  from remote at a glance.
+
+### Removed (BREAKING)
+- The `forward list|add|rm` command group. Use `set <name> -L/-R/-D …` to redefine
+  a tunnel's forwards.
+
+### Fixed
+- `install --skill` no longer fails right after a global npm install. The skill
+  step resolved its source relative to the running copy, but `install` runs it
+  after `anchor()`'s legacy cleanup removes that copy (the npm-global dir), so it
+  reported `skill source not found` and skipped the agent skill. It now falls
+  back to the freshly anchored `libDir` copy recorded in the install manifest.
+- `--json` now applies to error paths too. Usage and not-found errors previously
+  printed plain text to stderr even under `--json`; they now emit
+  `{ "error": …, "code": N }` on stdout (exit code unchanged). Covers `add`,
+  `set`, `rm`, `rename`, `status`, `run`, `webhook`, `import`, unknown commands,
+  and more. Human (non-`--json`) output is unchanged.
+- `status --json` tunnel objects now carry `lastExitCode` in every state. It was
+  present only for live tunnels (from the supervisor) and missing for
+  idle/stopped/`daemon-stopped` ones, so an agent's parsed schema shifted with
+  tunnel state; the key is now always present.
+- Doc site: the `blocked` state (endpoint conflict) is now listed in the
+  documented state values, matching the CLI and `SKILL.md`.
+
 ## [0.9.5] - 2026-06-18
 
 ### Fixed
@@ -169,6 +246,9 @@ First public release.
   or a single quote before building the remote command, closing a shell-injection
   path through a crafted key comment.
 
+[0.10.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.5...v0.10.0
+[0.9.5]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.4...v0.9.5
+[0.9.4]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.0...v0.9.1

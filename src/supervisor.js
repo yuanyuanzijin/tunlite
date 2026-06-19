@@ -13,6 +13,7 @@ const STATE = {
   CONNECTED: 'connected',
   RETRYING: 'retrying',
   NEEDS_AUTH: 'needs-auth',
+  BLOCKED: 'blocked',
   FAILED: 'failed',
   STOPPED: 'stopped',
 };
@@ -51,11 +52,45 @@ class Supervisor extends EventEmitter {
     this._connectGraceMs = opts.connectGraceMs ?? CONNECT_GRACE_MS;
     this._needsAuthRetryMs = opts.needsAuthRetryMs ?? NEEDS_AUTH_RETRY_MS;
     this._stopGraceMs = opts.stopGraceMs ?? STOP_GRACE_MS;
+    // Endpoint lock (injectable for tests). Held for the supervisor's lifetime.
+    this._lock = opts.lock || require('./lock');
+    this._lockHandle = null;
   }
 
   start() {
     this._stopped = false;
+    this._acquireThenSpawn();
+  }
+
+  _acquireThenSpawn() {
+    if (this._stopped) return;
+    this._clearTimers();
+    const keys = ssh.forwardEndpoints(this.tunnel);
+    let res;
+    try {
+      res = this._lock.acquire(keys, { name: this.tunnel.name, pid: process.pid });
+    } catch (err) {
+      // Fail open: a lock-subsystem problem must never take a tunnel down.
+      this.emit('log', `endpoint lock unavailable, proceeding without it: ${err.message}`);
+      this._lockHandle = null;
+      return this._spawn();
+    }
+    if (!res.ok) {
+      this.lastError = `endpoint ${res.key} held by tunnel ${res.holder.name} (pid ${res.holder.pid})`;
+      this._setState(STATE.BLOCKED, { lastError: this.lastError });
+      this.emit('log', `blocked: ${this.lastError}`);
+      // The holder may go away; re-acquire on the slow (needs-auth) cadence.
+      this._timer = this._setTimeout(() => this._acquireThenSpawn(), this._needsAuthRetryMs);
+      return;
+    }
+    this._lockHandle = res.handle;
     this._spawn();
+  }
+
+  _releaseLock() {
+    if (!this._lockHandle) return;
+    try { this._lock.release(this._lockHandle); } catch (_) { /* best effort */ }
+    this._lockHandle = null;
   }
 
   _setState(state, extra = {}) {
@@ -103,6 +138,7 @@ class Supervisor extends EventEmitter {
       this.lastExitCode = code;
       this._clearTimers();
       if (this._stopped) {
+        this._releaseLock();
         this._setState(STATE.STOPPED);
         return;
       }
@@ -209,6 +245,7 @@ class Supervisor extends EventEmitter {
       }, this._stopGraceMs);
       try { child.kill('SIGTERM'); } catch (_) { /* ignore */ }
     } else {
+      this._releaseLock();
       this._setState(STATE.STOPPED);
     }
   }

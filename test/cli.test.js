@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { run } = require('../src/cli');
+const { run, EXIT } = require('../src/cli');
 
 const FAKE_SSH = path.join(__dirname, '..', 'fixtures', 'fake-ssh.js');
 
@@ -84,7 +84,7 @@ test('add / list / rm via config (no daemon)', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
   let c = capture();
-  assert.equal(await tunlite(c.io, 'add', 'local', 'web', '--to', 'me@host', '--remote', '80', '--local', '8080'), 0);
+  assert.equal(await tunlite(c.io, 'add', 'web', '--to', 'me@host', '-L', '8080:localhost:80'), 0);
   assert.match(c.out(), /added "web"/);
 
   c = capture();
@@ -99,10 +99,21 @@ test('add / list / rm via config (no daemon)', async (t) => {
   assert.equal(await tunlite(c.io, 'rm', 'web'), 3); // not found
 });
 
+test('adding a second tunnel on the same local endpoint warns (warn-only, exit 0)', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@host', '-L', '18080:localhost:80');
+  const c = capture();
+  const code = await tunlite(c.io, 'add', 'web2', '--to', 'me@host', '-L', '18080:localhost:90');
+  assert.equal(code, EXIT.OK);
+  assert.match(c.err(), /endpoint L:127\.0\.0\.1:18080 is also used by tunnel "web"/);
+  assert.doesNotMatch(c.out(), /also used by/);
+});
+
 test('rename changes the name and preserves config', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  await tunlite(capture().io, 'add', 'remote', 'tmux-4705', '--to', 'root@203.0.113.10', '--local', '4705');
+  await tunlite(capture().io, 'add', 'tmux-4705', '--to', 'root@203.0.113.10', '-R', '4705:localhost:4705');
 
   let c = capture();
   assert.equal(await tunlite(c.io, 'rename', 'tmux-4705', 'progress-board-4705'), 0);
@@ -118,12 +129,12 @@ test('rename changes the name and preserves config', async (t) => {
 
   // old name gone, target-exists and missing-source rejected
   assert.equal(await tunlite(capture().io, 'rename', 'tmux-4705', 'x'), 3); // not found
-  await tunlite(capture().io, 'add', 'dynamic', 'other', '--to', 'me@h', '--local', '1080');
+  await tunlite(capture().io, 'add', 'other', '--to', 'me@h', '-D', '1080');
   assert.equal(await tunlite(capture().io, 'rename', 'other', 'progress-board-4705'), 2); // exists
   assert.equal(await tunlite(capture().io, 'rename', 'other', 'Bad Name'), 2); // invalid
 });
 
-test('add local/remote/dynamic build the right forward objects with smart defaults', async (t) => {
+test('add -L/-R/-D build the right forward objects', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
   const get = async (name) => {
@@ -132,31 +143,37 @@ test('add local/remote/dynamic build the right forward objects with smart defaul
     return JSON.parse(c.out()).find((r) => r.name === name);
   };
 
-  // local, --remote only -> listen locally on the same port, target localhost
-  assert.equal(await tunlite(capture().io, 'add', 'local', 'db', '--to', 'u@h', '--remote', '5432'), 0);
+  // -L, listen locally on the same port, target localhost
+  assert.equal(await tunlite(capture().io, 'add', 'db', '--to', 'u@h', '-L', '5432:localhost:5432'), 0);
   assert.deepEqual((await get('db')).forwards[0],
     { type: 'local', bind: '127.0.0.1', srcPort: 5432, destHost: 'localhost', destPort: 5432 });
 
-  // local with a target host, a distinct local port, and an SSH :port in --to
-  assert.equal(await tunlite(capture().io, 'add', 'local', 'db2', '--to', 'u@h:2222', '--remote', 'db.int:5432', '--local', '15432'), 0);
+  // -L with a target host, a distinct local port, and an SSH :port in --to
+  assert.equal(await tunlite(capture().io, 'add', 'db2', '--to', 'u@h:2222', '-L', '15432:db.int:5432'), 0);
   const t2 = await get('db2');
   assert.equal(t2.port, 2222);
   assert.deepEqual(t2.forwards[0],
     { type: 'local', bind: '127.0.0.1', srcPort: 15432, destHost: 'db.int', destPort: 5432 });
 
-  // remote, --local only + a public --remote bind on the server
-  assert.equal(await tunlite(capture().io, 'add', 'remote', 'web', '--to', 'u@h', '--local', '3000', '--remote', '0.0.0.0:9000'), 0);
+  // -R with a public bind on the server side
+  assert.equal(await tunlite(capture().io, 'add', 'web', '--to', 'u@h', '-R', '0.0.0.0:9000:localhost:3000'), 0);
   assert.deepEqual((await get('web')).forwards[0],
     { type: 'remote', bind: '0.0.0.0', srcPort: 9000, destHost: 'localhost', destPort: 3000 });
 
-  // dynamic, default port 1080
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'px', '--to', 'u@h'), 0);
+  // -D dynamic SOCKS
+  assert.equal(await tunlite(capture().io, 'add', 'px', '--to', 'u@h', '-D', '1080'), 0);
   assert.deepEqual((await get('px')).forwards[0], { type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 });
 
-  // missing required endpoints / unknown subcommand -> usage error
-  assert.equal(await tunlite(capture().io, 'add', 'local', 'x', '--to', 'u@h'), 2); // needs --remote
-  assert.equal(await tunlite(capture().io, 'add', 'remote', 'y', '--to', 'u@h'), 2); // needs --local
-  assert.equal(await tunlite(capture().io, 'add', 'bogus', 'z', '--to', 'u@h'), 2);   // unknown sub
+  // no forward at all -> usage error (at least one -L/-R/-D required)
+  assert.equal(await tunlite(capture().io, 'add', 'x', '--to', 'u@h'), 2);
+  assert.equal(await tunlite(capture().io, 'add', 'y', '--to', 'u@h'), 2);
+
+  // a stray positional (half-remembering the old `add <name> local …` shape) is a
+  // usage error, not silently swallowed — forwards come from -L/-R/-D flags only.
+  assert.equal(await tunlite(capture().io, 'add', 'stray', 'local', '--to', 'u@h', '-L', '8080:localhost:80'), 2);
+  assert.equal(await get('stray'), undefined, 'a rejected add must not create the tunnel');
+  // set rejects a stray positional the same way ('web' exists from above).
+  assert.equal(await tunlite(capture().io, 'set', 'web', 'extra', '-L', '1:localhost:2'), 2);
 });
 
 test('up starts a daemon and reaches connected, then down/stop', async (t) => {
@@ -170,10 +187,10 @@ test('up starts a daemon and reaches connected, then down/stop', async (t) => {
 
   // remote forward so connected doesn't depend on a real local listener
   let c = capture();
-  await tunlite(c.io, 'add', 'remote', 'rev', '--to', 'me@host', '--local', '3000', '--remote', '9000');
+  await tunlite(c.io, 'add', 'rev', '--to', 'me@host', '-R', '9000:localhost:3000');
 
   c = capture();
-  const code = await tunlite(c.io, 'up', 'rev');
+  const code = await tunlite(c.io, 'enable', 'rev');
   assert.equal(code, 0, c.out() + c.err());
 
   // poll status until connected
@@ -188,7 +205,7 @@ test('up starts a daemon and reaches connected, then down/stop', async (t) => {
   assert.ok(connected, 'tunnel should reach connected');
 
   c = capture();
-  await tunlite(c.io, 'down', 'rev');
+  await tunlite(c.io, 'disable', 'rev');
   assert.match(c.out(), /stopped: rev/);
 });
 
@@ -200,13 +217,13 @@ test('tags: add/set manage labels; --tag filters and selects (no daemon)', async
   const get = async (name) => (await json('list', '--json')).find((r) => r.name === name);
 
   // add --tag: repeatable + comma + dedupe
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'a', '--to', 'u@h', '--tag', 'work', '--tag', 'db,work'), 0);
+  assert.equal(await tunlite(capture().io, 'add', 'a', '--to', 'u@h', '-D', '1080', '--tag', 'work', '--tag', 'db,work'), 0);
   assert.deepEqual((await get('a')).tags, ['work', 'db']);
-  await tunlite(capture().io, 'add', 'dynamic', 'b', '--to', 'u@h', '--tag', 'work');
-  await tunlite(capture().io, 'add', 'dynamic', 'c', '--to', 'u@h', '--tag', 'prod');
+  await tunlite(capture().io, 'add', 'b', '--to', 'u@h', '-D', '1080', '--tag', 'work');
+  await tunlite(capture().io, 'add', 'c', '--to', 'u@h', '-D', '1080', '--tag', 'prod');
 
   // invalid tag char -> usage error, tunnel not created
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'z', '--to', 'u@h', '--tag', 'bad tag'), 2);
+  assert.equal(await tunlite(capture().io, 'add', 'z', '--to', 'u@h', '-D', '1080', '--tag', 'bad tag'), 2);
   assert.equal(await get('z'), undefined);
 
   // set --tag replaces the whole set; --no-tags clears
@@ -226,14 +243,14 @@ test('tags: add/set manage labels; --tag filters and selects (no daemon)', async
   assert.deepEqual((await json('status', '--tag', 'prod', '--json')).tunnels.map((r) => r.name), ['c']);
 
   // down --tag selects the union (a + b flip off; c untouched)
-  assert.equal(await tunlite(capture().io, 'down', '--tag', 'work'), 0);
+  assert.equal(await tunlite(capture().io, 'disable', '--tag', 'work'), 0);
   assert.equal((await get('a')).enabled, false);
   assert.equal((await get('b')).enabled, false);
   assert.equal((await get('c')).enabled, true);
 
   // name AND --tag -> usage (2); --tag with no match -> not-found (3)
-  assert.equal(await tunlite(capture().io, 'down', 'c', '--tag', 'prod'), 2);
-  assert.equal(await tunlite(capture().io, 'down', '--tag', 'nope'), 3);
+  assert.equal(await tunlite(capture().io, 'disable', 'c', '--tag', 'prod'), 2);
+  assert.equal(await tunlite(capture().io, 'disable', '--tag', 'nope'), 3);
 
   // the same tag-no-match contract holds for the other one-shot selectors
   assert.equal(await tunlite(capture().io, 'list', '--tag', 'nope'), 3, 'list --tag <no-match>');
@@ -244,7 +261,73 @@ test('tags: add/set manage labels; --tag filters and selects (no daemon)', async
   assert.equal(await tunlite(capture().io, 'list', '--tag', 'prod'), 0);
 });
 
-test('up --tag brings up every tunnel carrying that label', async (t) => {
+test('action verbs require an explicit target (name | --tag | all); bare is usage (2)', async (t) => {
+  const env = withEnv();
+  t.after(async () => {
+    try { await tunlite(capture().io, 'daemon', 'stop'); } catch (_) {}
+    await new Promise((r) => setTimeout(r, 300));
+    env.restore();
+  });
+  await tunlite(capture().io, 'add', 'a', '--to', 'me@h', '-R', '9101:localhost:3001');
+  await tunlite(capture().io, 'add', 'b', '--to', 'me@h', '-R', '9102:localhost:3002');
+
+  for (const verb of ['enable', 'disable', 'restart']) {
+    const c = capture();
+    assert.equal(await tunlite(c.io, verb), 2, `${verb} bare -> usage`);
+    assert.match(c.err(), /specify a tunnel name, --tag <label>, or `all`/, `${verb} hint`);
+  }
+
+  // `all` selects every tunnel
+  assert.equal(await tunlite(capture().io, 'disable', 'all'), 0);
+  const load = () => require('../src/config').load(require('../src/paths').configFile());
+  assert.ok(load().tunnels.length === 2 && load().tunnels.every((x) => x.enabled === false), 'disable all flips every tunnel off');
+
+  // enable all turns them back on AND its end-of-command status display accepts the
+  // `all` selector (a regression once: status read `all` as a tunnel name -> exit 3)
+  const c = capture();
+  assert.equal(await tunlite(c.io, 'enable', 'all'), 0, c.out() + c.err());
+  assert.ok(load().tunnels.every((x) => x.enabled === true), 'enable all flips every tunnel on');
+  // status also understands the `all` token (every tunnel, exit 0)
+  assert.equal(await tunlite(capture().io, 'status', 'all'), 0);
+});
+
+test('`all` is a reserved tunnel name (add and rename reject it)', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  const c = capture();
+  assert.equal(await tunlite(c.io, 'add', 'all', '--to', 'me@h', '-R', '9000:localhost:3000'), 2);
+  assert.match(c.err(), /reserved name/);
+  await tunlite(capture().io, 'add', 'real', '--to', 'me@h', '-R', '9000:localhost:3000');
+  const c2 = capture();
+  assert.equal(await tunlite(c2.io, 'rename', 'real', 'all'), 2);
+  assert.match(c2.err(), /reserved name/);
+});
+
+test('did-you-mean: wrong-word aliases + typos suggest the right command/subcommand', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  const cases = [
+    ['up', /did you mean `enable`/], ['down', /did you mean `disable`/],
+    ['start', /did you mean `enable`/], ['stop', /did you mean `disable`/],
+    ['enabl', /did you mean `enable`/], ['stauts', /did you mean `status`/],
+    ['instal', /did you mean `install`/],
+  ];
+  for (const [cmd, re] of cases) {
+    const c = capture();
+    assert.equal(await tunlite(c.io, cmd), 2, `${cmd} -> usage`);
+    assert.match(c.err(), re, `${cmd} suggestion`);
+  }
+  // genuinely unknown -> no bogus suggestion
+  const c = capture();
+  assert.equal(await tunlite(c.io, 'zzzzzz'), 2);
+  assert.match(c.err(), /unknown command: zzzzzz/);
+  assert.doesNotMatch(c.err(), /did you mean/);
+  // subcommands suggest too
+  { const s = capture(); assert.equal(await tunlite(s.io, 'daemon', 'statu'), 2); assert.match(s.err(), /unknown daemon subcommand: statu — did you mean `status`/); }
+  { const s = capture(); assert.equal(await tunlite(s.io, 'webhook', 'evnts'), 2); assert.match(s.err(), /unknown webhook subcommand: evnts — did you mean `events`/); }
+});
+
+test('enable --tag brings up every tunnel carrying that label', async (t) => {
   const env = withEnv();
   t.after(async () => {
     try { await tunlite(capture().io, 'daemon', 'stop'); } catch (_) {}
@@ -252,11 +335,11 @@ test('up --tag brings up every tunnel carrying that label', async (t) => {
     env.restore();
   });
   // remote forwards so connected doesn't depend on a real local listener
-  await tunlite(capture().io, 'add', 'remote', 'rev-a', '--to', 'me@host', '--local', '3001', '--remote', '9001', '--tag', 'grp');
-  await tunlite(capture().io, 'add', 'remote', 'rev-b', '--to', 'me@host', '--local', '3002', '--remote', '9002', '--tag', 'grp');
-  await tunlite(capture().io, 'add', 'remote', 'solo', '--to', 'me@host', '--local', '3003', '--remote', '9003', '--tag', 'other', '--disabled');
+  await tunlite(capture().io, 'add', 'rev-a', '--to', 'me@host', '-R', '9001:localhost:3001', '--tag', 'grp');
+  await tunlite(capture().io, 'add', 'rev-b', '--to', 'me@host', '-R', '9002:localhost:3002', '--tag', 'grp');
+  await tunlite(capture().io, 'add', 'solo', '--to', 'me@host', '-R', '9003:localhost:3003', '--tag', 'other', '--disabled');
 
-  assert.equal(await tunlite(capture().io, 'up', '--tag', 'grp'), 0);
+  assert.equal(await tunlite(capture().io, 'enable', '--tag', 'grp'), 0);
 
   let ok = false;
   for (let i = 0; i < 40; i++) {
@@ -280,7 +363,7 @@ test('uninstall --purge removes config and state', async (t) => {
   const fsmod = require('fs');
 
   let c = capture();
-  await tunlite(c.io, 'add', 'local', 'web', '--to', 'me@host', '--remote', '80', '--local', '8080');
+  await tunlite(c.io, 'add', 'web', '--to', 'me@host', '-L', '8080:localhost:80');
   const cfgDir = require('../src/paths').configDir();
   assert.ok(fsmod.existsSync(cfgDir), 'config dir should exist after add');
 
@@ -295,7 +378,7 @@ test('uninstall without --purge keeps config', async (t) => {
   t.after(() => env.restore());
   const fsmod = require('fs');
   let c = capture();
-  await tunlite(c.io, 'add', 'dynamic', 'web', '--to', 'me@host', '--local', '1080');
+  await tunlite(c.io, 'add', 'web', '--to', 'me@host', '-D', '1080');
   const cfgDir = require('../src/paths').configDir();
   c = capture();
   await tunlite(c.io, 'uninstall', '--json');
@@ -306,7 +389,7 @@ test('uninstall --force is accepted (no usage error) and completes the teardown'
   const env = withEnv();
   t.after(() => env.restore());
   let c = capture();
-  await tunlite(c.io, 'add', 'dynamic', 'web', '--to', 'me@host', '--local', '1080');
+  await tunlite(c.io, 'add', 'web', '--to', 'me@host', '-D', '1080');
   c = capture();
   const code = await tunlite(c.io, 'uninstall', '--force'); // --force must be a known flag, not exit 2
   assert.equal(code, 0);
@@ -358,7 +441,7 @@ test('add rejects an invalid SSH port in --to (exit 2), no silent fallback to 22
 
   for (const bad of ['abc', '0', '70000', '22.5', '-1']) {
     const c = capture();
-    const code = await tunlite(c.io, 'add', 'local', 'web', '--to', `me@host:${bad}`, '--remote', '80');
+    const code = await tunlite(c.io, 'add', 'web', '--to', `me@host:${bad}`, '-L', '80:localhost:80');
     assert.equal(code, 2, `port "${bad}" should be a usage error`);
     assert.match(c.err(), /port/);
   }
@@ -371,9 +454,9 @@ test('add rejects an invalid SSH port in --to (exit 2), no silent fallback to 22
 test('add refuses a duplicate name (exit 2) instead of silently overwriting', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  assert.equal(await tunlite(capture().io, 'add', 'local', 'dup', '--to', 'me@h1', '--remote', '80', '--local', '8001'), 0);
+  assert.equal(await tunlite(capture().io, 'add', 'dup', '--to', 'me@h1', '-L', '8001:localhost:80'), 0);
   const c = capture();
-  const code = await tunlite(c.io, 'add', 'local', 'dup', '--to', 'me@h2', '--remote', '90', '--local', '9001');
+  const code = await tunlite(c.io, 'add', 'dup', '--to', 'me@h2', '-L', '9001:localhost:90');
   assert.equal(code, 2, 'a duplicate name is a usage error, not exit 0');
   assert.match(c.err(), /already exists/);
   // the original definition is intact (not clobbered)
@@ -387,7 +470,7 @@ test('add rejects an invalid tunnel name with a usage error (exit 2), not a gene
   const env = withEnv();
   t.after(() => env.restore());
   const c = capture();
-  const code = await tunlite(c.io, 'add', 'local', 'bad name', '--to', 'me@h', '--remote', '80', '--local', '8002');
+  const code = await tunlite(c.io, 'add', 'bad name', '--to', 'me@h', '-L', '8002:localhost:80');
   assert.equal(code, 2);
   assert.match(c.err(), /invalid tunnel name/);
 });
@@ -395,7 +478,7 @@ test('add rejects an invalid tunnel name with a usage error (exit 2), not a gene
 test('add accepts a valid non-default SSH port via --to host:port', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  const code = await tunlite(capture().io, 'add', 'local', 'web', '--to', 'me@host:2222', '--remote', '80', '--local', '8080');
+  const code = await tunlite(capture().io, 'add', 'web', '--to', 'me@host:2222', '-L', '8080:localhost:80');
   assert.equal(code, 0);
   const c = capture();
   await tunlite(c.io, 'list', '--json');
@@ -415,13 +498,13 @@ test('check rejects an invalid SSH port in the target (exit 2) before probing', 
 test('unknown flags are rejected as a usage error (exit 2)', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  assert.equal(await tunlite(capture().io, 'up', '--bogus'), 2);
+  assert.equal(await tunlite(capture().io, 'enable', '--bogus'), 2);
   const c = capture();
-  const code = await tunlite(c.io, 'add', 'local', 'web', '--to', 'me@host', '--remote', '80', '--local', '8080', '--nope');
+  const code = await tunlite(c.io, 'add', 'web', '--to', 'me@host', '-L', '8080:localhost:80', '--nope');
   assert.equal(code, 2);
   assert.match(c.err(), /unknown option/);
   // declared boolean flags still work
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'd', '--to', 'me@h', '--local', '1080', '--disabled'), 0);
+  assert.equal(await tunlite(capture().io, 'add', 'd', '--to', 'me@h', '-D', '1080', '--disabled'), 0);
 });
 
 test('update refuses to self-update from a source checkout', async (t) => {
@@ -465,7 +548,7 @@ test('status text output carries a state glyph per tunnel and an overall daemon 
   process.env.NO_COLOR = '1'; // force deterministic plain output regardless of how tests are run
   t.after(() => { env.restore(); if (prevNoColor === undefined) delete process.env.NO_COLOR; else process.env.NO_COLOR = prevNoColor; });
 
-  await tunlite(capture().io, 'add', 'local', 'web', '--to', 'me@host', '--remote', '80', '--local', '8080');
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@host', '-L', '8080:localhost:80');
   const c = capture();
   const code = await tunlite(c.io, 'status'); // no --json; daemon not running in this sandbox
   const out = c.out();
@@ -481,8 +564,58 @@ test('monitor refuses non-interactive use and points at status --json', async (t
   const c = capture();
   const code = await tunlite(c.io, 'monitor', '--json'); // --json forces the refusal path, TTY-independent
   assert.equal(code, 2);
-  assert.match(c.err(), /interactive terminal/);
-  assert.match(c.err(), /status --json/);
+  // Under --json the usage error is structured JSON on stdout (not plain stderr).
+  const out = JSON.parse(c.out());
+  assert.equal(out.code, 2);
+  assert.match(out.error, /interactive terminal/);
+  assert.match(out.error, /status --json/);
+});
+
+test('errors honor --json: usage/not-found become {error,code} on stdout', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+
+  // usage error (add without --to): JSON on stdout, code 2, nothing on stderr.
+  const c1 = capture();
+  assert.equal(await tunlite(c1.io, 'add', 'web', '--json'), 2);
+  const j1 = JSON.parse(c1.out());
+  assert.equal(j1.code, 2);
+  assert.match(j1.error, /usage: tunlite add/);
+  assert.equal(c1.err(), '');
+
+  // unknown command: also JSON, code 2.
+  const c2 = capture();
+  assert.equal(await tunlite(c2.io, 'frobnicate', '--json'), 2);
+  assert.match(JSON.parse(c2.out()).error, /unknown command/);
+
+  // not-found (rm a missing tunnel): JSON, code 3.
+  const c3 = capture();
+  assert.equal(await tunlite(c3.io, 'rm', 'nope-xyz', '--json'), 3);
+  const j3 = JSON.parse(c3.out());
+  assert.equal(j3.code, 3);
+  assert.match(j3.error, /no such tunnel/);
+
+  // Human mode (no --json) is unchanged: plain text on stderr, stdout clean.
+  const c4 = capture();
+  assert.equal(await tunlite(c4.io, 'add', 'web'), 2);
+  assert.match(c4.err(), /usage: tunlite add/);
+  assert.equal(c4.out(), '');
+});
+
+test('status --json tunnel schema is stable for an idle tunnel (incl. lastExitCode)', async (t) => {
+  const env = withEnv();
+  t.after(() => env.restore());
+  await tunlite(capture().io, 'add', 'svc', '--to', 'me@example.com', '-L', '8080:localhost:80');
+  const c = capture();
+  await tunlite(c.io, 'status', 'svc', '--json');
+  const tun = JSON.parse(c.out()).tunnels[0];
+  // An idle/offline tunnel must carry the SAME keys as a live one (sourced from
+  // supervisor.status()), so an agent's --json schema doesn't shift with state.
+  const EXPECT = ['name', 'host', 'port', 'identityFile', 'sshOptions', 'jump', 'tags',
+    'enabled', 'autoSetupKey', 'state', 'pid', 'restarts', 'uptimeMs', 'lastError',
+    'lastExitCode', 'forwards', 'uptime'];
+  assert.deepEqual(Object.keys(tun).sort(), [...EXPECT].sort(),
+    `idle status JSON must match the live schema (esp. lastExitCode); got: ${Object.keys(tun)}`);
 });
 
 test('install anchors: copies runtime, writes launcher + manifest', async () => {
@@ -493,7 +626,7 @@ test('install anchors: copies runtime, writes launcher + manifest', async () => 
     TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1',
   };
   const io = mkio();
-  const code = await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], io));
+  const code = await withEnv(env, () => cli.run(['install'], io));
   assert.equal(code, 0);
   const install = require('../src/install');
   // The harness restores env after the run, so read the manifest by its explicit
@@ -509,7 +642,7 @@ test('install writes the `tun` alias; full uninstall removes it', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-alias-cli-'));
   const bin = path.join(home, 'bin');
   const env = { TUNLITE_HOME: home, TUNLITE_BIN: bin, TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1' };
-  await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], mkio()));
+  await withEnv(env, () => cli.run(['install'], mkio()));
   const tun = fs.existsSync(path.join(bin, 'tun')) || fs.existsSync(path.join(bin, 'tun.cmd'));
   assert.ok(tun, 'tun alias created next to tunlite');
 
@@ -522,7 +655,7 @@ test('uninstall leaves a foreign `tun` alone', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-alias-foreign-cli-'));
   const bin = path.join(home, 'bin');
   const env = { TUNLITE_HOME: home, TUNLITE_BIN: bin, TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1' };
-  await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], mkio()));
+  await withEnv(env, () => cli.run(['install'], mkio()));
   // replace our tun with someone else's command, then uninstall
   fs.writeFileSync(path.join(bin, 'tun'), '#!/bin/sh\necho not ours\n');
   await withEnv(env, () => cli.run(['uninstall'], mkio()));
@@ -530,28 +663,36 @@ test('uninstall leaves a foreign `tun` alone', async () => {
   fs.rmSync(path.join(bin, 'tun'), { force: true });
 });
 
-test('install --service --skill user runs autostart (sandbox) + writes skill manifest', async () => {
+test('install -y sets up everything: autostart (sandbox) + skill + completion', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-cli-onb-'));
   const skills = path.join(home, 'skills');
   const env = {
     TUNLITE_HOME: home, TUNLITE_BIN: path.join(home, 'bin'),
     TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1',
     TUNLITE_SKILLS_DIR: skills,
+    HOME: home, SHELL: '/bin/bash', // isolate completion's rc write to the temp home
   };
   const io = mkio();
-  const code = await withEnv(env, () => cli.run(['install', '--yes', '--service', '--skill', 'user'], io));
+  const code = await withEnv(env, () => cli.run(['install', '--yes'], io));
   assert.equal(code, 0);
   // sandbox autostart adapter reports installed=false but install() returned ok; assert it was invoked via output
   assert.match(io.out.text(), /service/i);
   assert.ok(fs.existsSync(path.join(skills, 'ssh-tunnel', 'SKILL.md')));
 });
 
-test('install --no-service --no-skill skips both', async () => {
+test('bare install (no tty) only anchors — skips autostart/skill/completion', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-cli-skip-'));
-  const env = { TUNLITE_HOME: home, TUNLITE_BIN: path.join(home, 'bin'), TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1' };
+  const skills = path.join(home, 'skills');
+  const env = {
+    TUNLITE_HOME: home, TUNLITE_BIN: path.join(home, 'bin'), TUNLITE_NODE: process.execPath,
+    TUNLITE_FAKE_AUTOSTART: '1', TUNLITE_SKILLS_DIR: skills, HOME: home, SHELL: '/bin/bash',
+  };
   const io = mkio();
-  const code = await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], io));
+  const code = await withEnv(env, () => cli.run(['install'], io));
   assert.equal(code, 0);
+  assert.ok(!fs.existsSync(path.join(skills, 'ssh-tunnel', 'SKILL.md')), 'no skill installed');
+  assert.ok(!fs.existsSync(path.join(home, '.bashrc')), 'no completion wired');
+  assert.match(io.err.text(), /add --yes/, 'hints how to set up the rest');
 });
 
 test('top-level `service`/`skill` are gone; `install service` works', async () => {
@@ -595,16 +736,17 @@ test('`install skill status` and `install skill --dir cwd` route to skill module
   }
 });
 
-test('install --json --service --skill emits exactly one JSON document', async () => {
+test('install --json -y emits exactly one JSON document', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-onb-json-'));
   const skills = path.join(home, 'skills');
   const env = {
     TUNLITE_HOME: home, TUNLITE_BIN: path.join(home, 'bin'),
     TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1',
     TUNLITE_SKILLS_DIR: skills,
+    HOME: home, SHELL: '/bin/bash', // isolate completion's rc write to the temp home
   };
   const io = mkio();
-  const code = await withEnv(env, () => cli.run(['install', '--json', '--yes', '--service', '--skill', 'user'], io));
+  const code = await withEnv(env, () => cli.run(['install', '--json', '--yes'], io));
   assert.equal(code, 0);
   // stdout must be a SINGLE parseable JSON document despite the service + skill
   // sub-steps (their own jsonOut output is suppressed in --json mode).
@@ -618,10 +760,11 @@ test('install --json --service --skill emits exactly one JSON document', async (
   assert.ok(fs.existsSync(path.join(skills, 'ssh-tunnel', 'SKILL.md')), 'skill actually installed');
 });
 
-test('install propagates an opted-in skill-step failure to a non-zero exit', async () => {
-  // Offline failure path: point --skill at a path WHOSE PARENT IS A FILE, so the
-  // skill installer's mkdirSync(dirname(dest)) hits ENOTDIR. No network, no real
-  // machine state touched (sandbox autostart + a temp HOME). Service is skipped.
+test('install -y propagates a skill-step failure to a non-zero exit', async () => {
+  // Offline failure path: point the skill dir at a path WHOSE PARENT IS A FILE, so
+  // the skill installer's mkdirSync(dirname(dest)) hits ENOTDIR. No network, no real
+  // machine state touched (sandbox autostart + a temp HOME). `-y` opts skill in;
+  // TUNLITE_SKILLS_DIR makes the 'user' scope resolve to the bad path.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-onb-fail-'));
   const blocker = path.join(home, 'not-a-dir');
   fs.writeFileSync(blocker, 'x'); // a regular file where a skills dir would go
@@ -629,9 +772,10 @@ test('install propagates an opted-in skill-step failure to a non-zero exit', asy
   const env = {
     TUNLITE_HOME: home, TUNLITE_BIN: path.join(home, 'bin'),
     TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1',
+    TUNLITE_SKILLS_DIR: badSkillDir, HOME: home, SHELL: '/bin/bash',
   };
   const io = mkio();
-  const code = await withEnv(env, () => cli.run(['install', '--no-service', '--skill', badSkillDir], io));
+  const code = await withEnv(env, () => cli.run(['install', '--yes'], io));
   assert.notEqual(code, 0); // anchor succeeded, but the requested skill step failed
 });
 
@@ -639,7 +783,7 @@ test('uninstall removes launcher + lib using the manifest', async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-uninst-'));
   const bin = path.join(home, 'bin');
   const env = { TUNLITE_HOME: home, TUNLITE_BIN: bin, TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1' };
-  await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], mkio()));
+  await withEnv(env, () => cli.run(['install'], mkio()));
   const install = require('../src/install');
   // The harness restores env after the run, so read the manifest by its explicit
   // path under this test's TUNLITE_HOME rather than via the (now-restored) env.
@@ -664,8 +808,8 @@ test('uninstall --purge deletes config + data + socket', async () => {
   const bin = path.join(home, 'bin');
   const env = { TUNLITE_HOME: home, TUNLITE_BIN: bin, TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1' };
   // Anchor first so config + data dirs exist, then write a tunnel into config too.
-  await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], mkio()));
-  await withEnv(env, () => cli.run(['add', 'local', 'web', '--to', 'me@host', '--remote', '80', '--local', '8080'], mkio()));
+  await withEnv(env, () => cli.run(['install'], mkio()));
+  await withEnv(env, () => cli.run(['add', 'web', '--to', 'me@host', '-L', '8080:localhost:80'], mkio()));
   // Compute the explicit paths the same shape paths.js does under this TUNLITE_HOME,
   // to dodge the env-restore timing (env is restored after each withEnv call).
   const cfgDir = path.join(home, 'config');
@@ -683,7 +827,7 @@ test('uninstall service leaves lib + launcher intact (early-return isolation)', 
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tl-uninst-svc2-'));
   const bin = path.join(home, 'bin');
   const env = { TUNLITE_HOME: home, TUNLITE_BIN: bin, TUNLITE_NODE: process.execPath, TUNLITE_FAKE_AUTOSTART: '1' };
-  await withEnv(env, () => cli.run(['install', '--no-service', '--no-skill'], mkio()));
+  await withEnv(env, () => cli.run(['install'], mkio()));
   const install = require('../src/install');
   const libDir = install.readManifest({ file: path.join(home, 'data', 'install.json') }).libDir;
   assert.ok(fs.existsSync(libDir), 'lib exists after anchor');
@@ -759,7 +903,7 @@ test('no hint for `install`, `version`, `help` themselves', async () => {
 test('status list renders an aligned table with a header', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  await tunlite(capture().io, 'add', 'local', 'web', '--to', 'me@h', '--remote', '80', '--local', '8080');
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@h', '-L', '8080:localhost:80');
   const c = capture();
   const code = await tunlite(c.io, 'status');
   assert.match(c.out(), /NAME\s+STATE\s+HOST\s+TYPE\s+ROUTE\s+PID\s+UP\s+RESTARTS/);
@@ -771,7 +915,7 @@ test('status list renders an aligned table with a header', async (t) => {
 test('status <name> renders a vertical detail with full params', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  await tunlite(capture().io, 'add', 'local', 'web', '--to', 'me@h', '--remote', '80', '--local', '8080');
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@h', '-L', '8080:localhost:80');
   const c = capture();
   await tunlite(c.io, 'status', 'web');
   assert.match(c.out(), /^web/m);
@@ -804,7 +948,7 @@ test('status <unknown> --json also exits NOTFOUND (not 0 with an empty list)', a
 test('status --json shape is unchanged (daemon/tunnels/service/skill)', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  await tunlite(capture().io, 'add', 'local', 'web', '--to', 'me@h', '--remote', '80');
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@h', '-L', '80:localhost:80');
   const c = capture();
   await tunlite(c.io, 'status', '--json');
   const obj = JSON.parse(c.out());
@@ -812,31 +956,41 @@ test('status --json shape is unchanged (daemon/tunnels/service/skill)', async (t
   assert.equal(obj.tunnels[0].name, 'web');
 });
 
-test('add local/remote/dynamic produce the right f.type', async (t) => {
+test('add -L/-R/-D produce the right f.type', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  await tunlite(capture().io, 'add', 'local', 'a', '--to', 'me@h', '--remote', '80');
-  await tunlite(capture().io, 'add', 'remote', 'b', '--to', 'me@h', '--local', '3000');
-  await tunlite(capture().io, 'add', 'dynamic', 'c', '--to', 'me@h');
+  await tunlite(capture().io, 'add', 'a', '--to', 'me@h', '-L', '80:localhost:80');
+  await tunlite(capture().io, 'add', 'b', '--to', 'me@h', '-R', '3000:localhost:3000');
+  await tunlite(capture().io, 'add', 'c', '--to', 'me@h', '-D', '1080');
   const c = capture();
   await tunlite(c.io, 'status', '--json');
   const types = Object.fromEntries(JSON.parse(c.out()).tunnels.map((x) => [x.name, x.forwards[0].type]));
   assert.deepEqual(types, { a: 'local', b: 'remote', c: 'dynamic' });
 });
 
-test('old verbs forward/reverse/socks are gone (usage error)', async (t) => {
-  const env = withEnv();
-  t.after(() => env.restore());
+test('old add <type> <name> syntax is rejected with a migration hint', async (t) => {
+  const env = withEnv(); t.after(() => env.restore());
   const c = capture();
-  const code = await tunlite(c.io, 'add', 'forward', 'x', '--to', 'me@h', '--remote', '80');
-  assert.equal(code, 2); // EXIT.USAGE
-  assert.match(c.err(), /add <local\|remote\|dynamic>/);
+  const code = await tunlite(c.io, 'add', 'local', 'web', '--to', 'me@host', '--remote', '80');
+  assert.equal(code, 2);
+  assert.match(c.err(), /add .*--to .*-L/); // points at the new syntax
+});
+
+test('add accepts multiple -L/-R/-D and echoes the forwards', async (t) => {
+  const env = withEnv(); t.after(() => env.restore());
+  const c = capture();
+  const code = await tunlite(c.io, 'add', 'multi', '--to', 'me@host', '-L', '8080:ex:80', '-D', '1080');
+  assert.equal(code, 0);
+  const cfg = JSON.parse(require('fs').readFileSync(require('path').join(env.home, 'config', 'config.json'), 'utf8'));
+  const t2 = cfg.tunnels.find((x) => x.name === 'multi');
+  assert.equal(t2.forwards.length, 2);
+  assert.match(c.out(), /local.*8080.*ex:80/); // echo on stdout (human mode)
 });
 
 test('doctor: tunnel configured + daemon down => exit 1 with a problems summary', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  await tunlite(capture().io, 'add', 'local', 'web', '--to', 'me@h', '--remote', '80', '--local', '8080');
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@h', '-L', '8080:localhost:80');
   const c = capture();
   const code = await tunlite(c.io, 'doctor');
   assert.equal(code, 1); // a fail exists (daemon down with a tunnel configured)
@@ -860,40 +1014,16 @@ test('doctor --json returns {ok, summary, checks[]}', async (t) => {
 test('add --jump stores normalized ProxyJump hops', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  assert.equal(await tunlite(capture().io, 'add', 'local', 'web-80', '--to', 'me@h', '--remote', '80', '--jump', 'user@bastion:2222'), 0);
+  assert.equal(await tunlite(capture().io, 'add', 'web-80', '--to', 'me@h', '-L', '80:localhost:80', '--jump', 'user@bastion:2222'), 0);
   const c = capture();
   await tunlite(c.io, 'list', '--json');
   assert.deepEqual(JSON.parse(c.out())[0].jump, ['user@bastion:2222']);
 });
 
-test('forward add/list/rm manage multiple forwards on a tunnel', async (t) => {
-  const env = withEnv();
-  t.after(() => env.restore());
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'multi-1080', '--to', 'me@h'), 0);
-
-  // append a second forward to the same tunnel
-  assert.equal(await tunlite(capture().io, 'forward', 'add', 'multi-1080', 'local', '--remote', '5432', '--local', '5432'), 0);
-  let c = capture();
-  await tunlite(c.io, 'forward', 'list', 'multi-1080', '--json');
-  assert.equal(JSON.parse(c.out()).length, 2);
-
-  // remove the second forward
-  assert.equal(await tunlite(capture().io, 'forward', 'rm', 'multi-1080', '2'), 0);
-  c = capture();
-  await tunlite(c.io, 'list', '--json');
-  assert.equal(JSON.parse(c.out())[0].forwards.length, 1);
-
-  // refuse to remove the last remaining forward (usage error)
-  assert.equal(await tunlite(capture().io, 'forward', 'rm', 'multi-1080', '1'), 2);
-
-  // unknown tunnel -> not found
-  assert.equal(await tunlite(capture().io, 'forward', 'add', 'nope', 'dynamic'), 3);
-});
-
 test('set updates host, port and jump on an existing tunnel', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'sx-1080', '--to', 'me@old'), 0);
+  assert.equal(await tunlite(capture().io, 'add', 'sx-1080', '--to', 'me@old', '-D', '1080'), 0);
   assert.equal(await tunlite(capture().io, 'set', 'sx-1080', '--to', 'me@new:2222', '--jump', 'user@bastion'), 0);
   const c = capture();
   await tunlite(c.io, 'list', '--json');
@@ -906,9 +1036,31 @@ test('set updates host, port and jump on an existing tunnel', async (t) => {
 test('set with no fields is a usage error; unknown tunnel is not found', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
-  assert.equal(await tunlite(capture().io, 'add', 'dynamic', 'sx2-1080', '--to', 'me@h'), 0);
+  assert.equal(await tunlite(capture().io, 'add', 'sx2-1080', '--to', 'me@h', '-D', '1080'), 0);
   assert.equal(await tunlite(capture().io, 'set', 'sx2-1080'), 2);
   assert.equal(await tunlite(capture().io, 'set', 'nope', '--to', 'me@h'), 3);
+});
+
+test('set replaces the whole forward set when -L/-R/-D given, and echoes it', async (t) => {
+  const env = withEnv(); t.after(() => env.restore());
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@host', '-L', '8080:ex:80', '-L', '9090:ex:90');
+  const c = capture();
+  const code = await tunlite(c.io, 'set', 'web', '-D', '1080');
+  assert.equal(code, 0);
+  const cfg = JSON.parse(require('fs').readFileSync(require('path').join(env.home, 'config', 'config.json'), 'utf8'));
+  const t2 = cfg.tunnels.find((x) => x.name === 'web');
+  assert.equal(t2.forwards.length, 1);
+  assert.equal(t2.forwards[0].type, 'dynamic');
+  assert.match(c.out(), /dynamic.*1080/);
+});
+
+test('set without forward flags leaves forwards untouched', async (t) => {
+  const env = withEnv(); t.after(() => env.restore());
+  await tunlite(capture().io, 'add', 'web', '--to', 'me@host', '-L', '8080:ex:80');
+  const code = await tunlite(capture().io, 'set', 'web', '--to', 'me@host2');
+  assert.equal(code, 0);
+  const cfg = JSON.parse(require('fs').readFileSync(require('path').join(env.home, 'config', 'config.json'), 'utf8'));
+  assert.equal(cfg.tunnels.find((x) => x.name === 'web').forwards.length, 1);
 });
 
 // --- webhook url redaction (secret lives in the path/query) ---------------
@@ -954,7 +1106,7 @@ test('<cmd> --help / -h prints help and exits 0 (README promises it for any comm
   t.after(() => env.restore());
   // A spread across plain verbs, group verbs, and the one that used to run
   // anyway (export dumped config instead of helping).
-  for (const cmd of ['status', 'up', 'logs', 'export', 'webhook', 'install', 'update', 'doctor']) {
+  for (const cmd of ['status', 'enable', 'logs', 'export', 'webhook', 'install', 'update', 'doctor']) {
     for (const h of ['--help', '-h']) {
       const c = capture();
       const code = await tunlite(c.io, cmd, h);
@@ -1003,7 +1155,7 @@ test('webhook test redacts the url (human + --json) and posts the full url', asy
   assert.doesNotMatch(c.out(), /SECRETPATH/);
 });
 
-test('export redacts the webhook url but leaves on-disk config intact', async (t) => {
+test('export omits settings entirely (no webhook url, redacted or not), config intact', async (t) => {
   const env = withEnv();
   t.after(() => env.restore());
   assert.equal(await tunlite(capture().io, 'webhook', 'set', SECRET_URL), 0);
@@ -1011,8 +1163,11 @@ test('export redacts the webhook url but leaves on-disk config intact', async (t
   const c = capture();
   assert.equal(await tunlite(c.io, 'export'), 0);
   const dump = JSON.parse(c.out());
-  assert.equal(dump.settings.alerts.webhook.url, 'https://hooks.slack.com/…');
+  // export carries only the portable subset — no settings/alerts block at all,
+  // so the webhook url (secret or its redacted form) never appears.
+  assert.ok(!('settings' in dump), 'export must not carry settings');
   assert.doesNotMatch(c.out(), new RegExp(SECRET_TAIL));
+  assert.doesNotMatch(c.out(), /hooks\.slack\.com/);
 
   // the persisted config still carries the real url (export didn't mutate it)
   const cfg = require('../src/config').load(require('../src/paths').configFile());
@@ -1040,8 +1195,8 @@ test('logs --json emits NDJSON (one JSON object per line); human path unchanged'
     env.restore();
   });
   // Bring a tunnel up so the daemon is running and has a log channel to tail.
-  await tunlite(capture().io, 'add', 'remote', 'rev', '--to', 'me@host', '--local', '3000', '--remote', '9000');
-  assert.equal(await tunlite(capture().io, 'up', 'rev'), 0);
+  await tunlite(capture().io, 'add', 'rev', '--to', 'me@host', '-R', '9000:localhost:3000');
+  assert.equal(await tunlite(capture().io, 'enable', 'rev'), 0);
 
   // Wait until the daemon has emitted at least one log line for the tunnel.
   let lines = [];
@@ -1080,7 +1235,7 @@ test('logs (non-follow) returns all lines, not a 200ms-timer subset', async (t) 
 
   // Register the tunnel so the CLI's not-found guard passes. No daemon is up yet
   // (the fake logs server is started below), so `add` only writes config.
-  await tunlite(capture().io, 'add', 'remote', 'rev', '--to', 'me@host', '--local', '3000', '--remote', '9000');
+  await tunlite(capture().io, 'add', 'rev', '--to', 'me@host', '-R', '9000:localhost:3000');
 
   const N = 400;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

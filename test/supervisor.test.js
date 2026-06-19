@@ -9,6 +9,20 @@ const { Supervisor, STATE, isBenignStderr } = require('../src/supervisor');
 
 const FAKE_SSH = path.join(__dirname, '..', 'fixtures', 'fake-ssh.js');
 
+const os = require('os');
+const fs = require('fs');
+const { beforeEach, afterEach } = require('node:test');
+
+let _LOCKHOME;
+beforeEach(() => {
+  _LOCKHOME = fs.mkdtempSync(path.join(os.tmpdir(), 'tunlite-sup-'));
+  process.env.TUNLITE_HOME = _LOCKHOME;
+});
+afterEach(() => {
+  delete process.env.TUNLITE_HOME;
+  try { fs.rmSync(_LOCKHOME, { recursive: true, force: true }); } catch (_) {}
+});
+
 function tunnel(extra = {}) {
   return {
     name: 'web', host: 'me@host', port: 22,
@@ -52,6 +66,46 @@ test('auth failure -> needs-auth and emits event', async () => {
   await waitFor(sup, (x) => x.state === STATE.NEEDS_AUTH);
   assert.equal(needsAuthFired, true);
   sup.stop();
+});
+
+const lock = require('../src/lock');
+
+test('second tunnel on the same endpoint goes blocked, then connects after the first releases', async () => {
+  process.env.FAKE_SSH_MODE = 'stay';
+  const fwd = [{ type: 'remote', bind: '127.0.0.1', srcPort: 9100, destHost: 'localhost', destPort: 3000 }];
+  const a = new Supervisor(tunnel({ name: 'a', host: 'me@host', forwards: fwd }),
+    { backoff: { baseMs: 10, capMs: 50, jitter: 0 } },
+    { sshBinary: FAKE_SSH, connectGraceMs: 60 });
+  a.start();
+  await waitFor(a, (x) => x.state === STATE.CONNECTED);
+
+  const b = new Supervisor(tunnel({ name: 'b', host: 'me@host', forwards: fwd }),
+    { backoff: { baseMs: 10, capMs: 50, jitter: 0 } },
+    { sshBinary: FAKE_SSH, connectGraceMs: 60, needsAuthRetryMs: 80 });
+  b.start();
+  const { s } = await waitFor(b, (x) => x.state === STATE.BLOCKED);
+  assert.equal(s.state, STATE.BLOCKED);
+  assert.match(b.status().lastError, /held by tunnel a/);
+
+  a.stop();
+  await waitFor(a, (x) => x.state === STATE.STOPPED);
+  await waitFor(b, (x) => x.state === STATE.CONNECTED);
+  b.stop();
+  await waitFor(b, (x) => x.state === STATE.STOPPED);
+});
+
+test('fail-open: a lock subsystem error does not stop the tunnel', async () => {
+  process.env.FAKE_SSH_MODE = 'stay';
+  const throwingLock = { acquire() { throw new Error('locks dir unwritable'); }, release() {} };
+  const sup = new Supervisor(
+    tunnel({ forwards: [{ type: 'remote', bind: '127.0.0.1', srcPort: 9101, destHost: 'localhost', destPort: 3000 }] }),
+    { backoff: { baseMs: 10, capMs: 50, jitter: 0 } },
+    { sshBinary: FAKE_SSH, connectGraceMs: 60, lock: throwingLock });
+  sup.start();
+  const { s } = await waitFor(sup, (x) => x.state === STATE.CONNECTED);
+  assert.equal(s.state, STATE.CONNECTED);
+  sup.stop();
+  await waitFor(sup, (x) => x.state === STATE.STOPPED);
 });
 
 test('isBenignStderr flags ssh noise but not real errors', () => {
@@ -179,7 +233,9 @@ test('backoff only resets after a connection survives resetAfterMs (flapping esc
 
   // Run one connect (held for `holdMs`) -> drop cycle, return the retry delay.
   const cycle = (holdMs) => {
-    sup.start();                 // STARTING; schedules the grace timer (one pending timer)
+    sup._spawn();                // STARTING; schedules the grace timer (one pending timer)
+                                 // (drives the reconnect/backoff path directly; the
+                                 // initial endpoint-lock acquire is out of scope here)
     const graceId = [...timers.keys()].pop();
     fire(graceId);               // grace elapsed, still alive -> remote-only marks CONNECTED
     assert.equal(sup.state, STATE.CONNECTED);

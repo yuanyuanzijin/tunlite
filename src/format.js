@@ -37,9 +37,14 @@ function hostWithPort(t) {
 
 // A forward's accurate kind and its endpoints (no type word).
 function forwardType(f) { return f.type; }
+// The arrow points at the far/server side: a local forward reaches out to its
+// remote destination (`→`), a remote forward publishes inward toward the server's
+// listen port (`←`). Endpoints keep ssh-flag order; the direction alone tells
+// local from remote.
+function forwardArrow(type) { return type === 'remote' ? '←' : '→'; }
 function forwardRoute(f) {
   if (f.type === 'dynamic') return `${f.bind}:${f.srcPort}`;
-  return `${f.bind}:${f.srcPort} → ${f.destHost}:${f.destPort}`;
+  return `${f.bind}:${f.srcPort} ${forwardArrow(f.type)} ${f.destHost}:${f.destPort}`;
 }
 function forwardTypes(t) {
   const seen = [];
@@ -60,41 +65,37 @@ function shellQuote(s) {
   return "'" + s.replace(/'/g, "'\\''") + "'";
 }
 
-// Render a [host:]port endpoint, dropping a default host so the reconstructed
-// command matches what a user would naturally type.
-function addr(host, port, dflt) {
-  return host && host !== dflt ? `${host}:${port}` : `${port}`;
+// One-line human label for a single forward (used by add/set echo + status detail).
+function forwardLabel(f) {
+  if (f.type === 'dynamic') return `dynamic  ${f.bind}:${f.srcPort}  (SOCKS5)`;
+  // Arrow direction matches the route column (see forwardArrow): `→` for local,
+  // `←` for remote — it points at the far/server side.
+  return `${f.type.padEnd(7)} ${f.bind}:${f.srcPort} ${forwardArrow(f.type)} ${f.destHost}:${f.destPort}`;
 }
 
-// Reconstruct the `tunlite add <local|remote|dynamic>` command that recreates
-// this tunnel, so the monitor detail page can show a copy-pasteable definition.
-// Default-valued parts (SSH port 22, bind 127.0.0.1, target localhost, listen
-// port == target port, socks 1080, enabled, auto key on) are omitted to keep the
-// line short. Built from the first forward (a tunnel defines exactly one).
-function buildAddCommand(t) {
-  const f = (t.forwards || [])[0];
-  const target = (t.port && Number(t.port) !== 22) ? `${t.host}:${t.port}` : t.host;
-  const head = ['tunlite add'];
-  const tail = [];
-  if (t.identityFile) tail.push('-i', shellQuote(t.identityFile));
-  for (const o of t.sshOptions || []) tail.push('--ssh-opt', shellQuote(o));
-  if (t.enabled === false) tail.push('--disabled');
-  if (t.autoSetupKey === false) tail.push('--no-auto-key');
+// ssh-native flag string for one forward, trimming a default 127.0.0.1 bind.
+// IPv6 literals (any address containing ':') are bracketed so the emitted spec
+// round-trips through ssh.parseForward (matches ssh.js's brkt()).
+function forwardToFlag(f) {
+  const brkt = (h) => (h && h.includes(':') ? `[${h}]` : h);
+  const b = (f.bind && f.bind !== '127.0.0.1') ? `${brkt(f.bind)}:` : '';
+  if (f.type === 'dynamic') return `-D ${b}${f.srcPort}`;
+  const flag = f.type === 'remote' ? '-R' : '-L';
+  return `${flag} ${b}${f.srcPort}:${brkt(f.destHost)}:${f.destPort}`;
+}
 
-  let parts;
-  if (!f) {
-    parts = [...head, shellQuote(t.name), '--to', shellQuote(target)];
-  } else if (f.type === 'dynamic') {
-    parts = [...head, 'dynamic', shellQuote(t.name), '--to', shellQuote(target)];
-    if (!(f.bind === '127.0.0.1' && f.srcPort === 1080)) parts.push('--local', addr(f.bind, f.srcPort, '127.0.0.1'));
-  } else if (f.type === 'remote') {
-    parts = [...head, 'remote', shellQuote(t.name), '--to', shellQuote(target), '--local', addr(f.destHost, f.destPort, 'localhost')];
-    if (!(f.bind === '127.0.0.1' && f.srcPort === f.destPort)) parts.push('--remote', addr(f.bind, f.srcPort, '127.0.0.1'));
-  } else {
-    parts = [...head, 'local', shellQuote(t.name), '--to', shellQuote(target), '--remote', addr(f.destHost, f.destPort, 'localhost')];
-    if (!(f.bind === '127.0.0.1' && f.srcPort === f.destPort)) parts.push('--local', addr(f.bind, f.srcPort, '127.0.0.1'));
-  }
-  return [...parts, ...tail].join(' ');
+// Reconstruct the `tunlite add` command that recreates this tunnel (ssh-native,
+// all forwards), so the monitor detail page can show a copy-pasteable definition.
+function buildAddCommand(t) {
+  const target = (t.port && Number(t.port) !== 22) ? `${t.host}:${t.port}` : t.host;
+  const parts = ['tunlite add', shellQuote(t.name), '--to', shellQuote(target)];
+  for (const f of t.forwards || []) parts.push(forwardToFlag(f));
+  if (t.identityFile) parts.push('-i', shellQuote(t.identityFile));
+  for (const o of t.sshOptions || []) parts.push('--ssh-opt', shellQuote(o));
+  if (t.jump && t.jump.length) parts.push('--jump', shellQuote(t.jump.join(',')));
+  if (t.enabled === false) parts.push('--disabled');
+  if (t.autoSetupKey === false) parts.push('--no-auto-key');
+  return parts.join(' ');
 }
 
 // ---- state styling (shared by `status` and `monitor`) ------------------
@@ -111,6 +112,7 @@ const STATE_STYLE = {
   starting: { glyph: '◌', color: 'yellow' },
   retrying: { glyph: '◌', color: 'yellow' },
   'needs-auth': { glyph: '⚠', color: 'red' },
+  blocked: { glyph: '⊘', color: 'red' },
   failed: { glyph: '✕', color: 'red' },
 };
 function stateStyle(state) {
@@ -211,13 +213,13 @@ function checkStyle(status) { return CHECK_STYLE[status] || CHECK_STYLE.info; }
 function serviceHealth(running, tunnels = []) {
   if (!running) return 'red';
   const states = tunnels.map((t) => t.state);
-  if (states.some((s) => s === 'failed' || s === 'needs-auth')) return 'red';
+  if (states.some((s) => s === 'failed' || s === 'needs-auth' || s === 'blocked')) return 'red';
   if (states.some((s) => s === 'starting' || s === 'retrying')) return 'yellow';
   return 'green';
 }
 
 module.exports = {
-  formatDuration, clockTime, buildAddCommand, stateStyle, serviceHealth,
+  formatDuration, clockTime, buildAddCommand, forwardLabel, forwardToFlag, stateStyle, serviceHealth,
   colorize, SGR, fit, hostWithPort, forwardType, forwardRoute, forwardTypes, forwardRoutes,
   TUNNEL_COLUMNS, renderTunnelTable, tunnelDetailRows, checkStyle,
 };

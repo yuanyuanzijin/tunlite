@@ -52,3 +52,26 @@ test('canPrompt is false when stdio is not a terminal (tests / CI)', () => {
   // path nor the /dev/tty path qualifies — install onboarding stays non-interactive.
   assert.equal(core.canPrompt(), false);
 });
+
+test('levenshtein counts single-edit distances', () => {
+  assert.equal(core.levenshtein('enable', 'enable'), 0);
+  assert.equal(core.levenshtein('enabl', 'enable'), 1);   // deletion
+  assert.equal(core.levenshtein('instal', 'install'), 1); // deletion
+  assert.equal(core.levenshtein('stauts', 'status'), 2);  // transposition = 2
+  assert.equal(core.levenshtein('', 'abc'), 3);
+});
+
+test('suggest: aliases win, then nearest plausible typo, else null', () => {
+  const cmds = ['enable', 'disable', 'restart', 'status', 'install', 'list'];
+  const aliases = { up: 'enable', down: 'disable' };
+  // wrong-word aliases win outright (large edit distance)
+  assert.equal(core.suggest('up', cmds, aliases), 'enable');
+  assert.equal(core.suggest('down', cmds, aliases), 'disable');
+  // typos resolve to the nearest command
+  assert.equal(core.suggest('enabl', cmds, aliases), 'enable');
+  assert.equal(core.suggest('stauts', cmds, aliases), 'status');
+  assert.equal(core.suggest('instal', cmds, aliases), 'install');
+  // too far -> no suggestion (avoid noise)
+  assert.equal(core.suggest('zzzzzz', cmds, aliases), null);
+  assert.equal(core.suggest('xy', cmds, aliases), null);
+});

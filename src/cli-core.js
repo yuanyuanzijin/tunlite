@@ -8,6 +8,19 @@ const fs = require('fs');
 
 const EXIT = { OK: 0, ERROR: 1, USAGE: 2, NOTFOUND: 3, NEEDS_AUTH: 4, DAEMON: 5 };
 
+// A user-facing CLI failure that carries its exit code. Thrown (not returned) so
+// the one dispatcher catch renders every command's errors consistently: the
+// message verbatim on stderr, or `{ error, code }` on stdout under --json.
+class CliError extends Error {
+  constructor(message, exitCode = EXIT.USAGE) {
+    super(message);
+    this.name = 'CliError';
+    this.exitCode = exitCode;
+  }
+}
+// Shorthand for `throw new CliError(...)`. Defaults to a usage error (exit 2).
+function fail(message, exitCode = EXIT.USAGE) { throw new CliError(message, exitCode); }
+
 // ---- tiny flag parser ---------------------------------------------------
 // valueFlags: flags that consume the next token. repeatFlags: collect into array.
 function parseFlags(args, { value = [], repeat = [], bool = [] } = {}) {
@@ -106,7 +119,71 @@ function printDaemonDown(io) {
 
 function pad(s, n) { s = String(s); return s.length >= n ? s : s + ' '.repeat(n - s.length); }
 
+// Levenshtein edit distance (iterative, single row) — small inputs (command names).
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prevDiag = prev[0];
+    prev[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = prev[j];
+      prev[j] = a[i - 1] === b[j - 1]
+        ? prevDiag
+        : 1 + Math.min(prevDiag, prev[j], prev[j - 1]);
+      prevDiag = tmp;
+    }
+  }
+  return prev[b.length];
+}
+
+// "Did you mean" for a mistyped command/subcommand. `aliases` maps known
+// wrong-word inputs to the right verb (e.g. up -> enable); those win outright.
+// Otherwise pick the closest candidate by edit distance, but only suggest when
+// it's close enough to be a plausible typo (<= 2 edits, and fewer than the input
+// length so 2-char inputs need an exact-ish match). Returns the suggestion or null.
+function suggest(input, candidates, aliases = {}) {
+  if (Object.prototype.hasOwnProperty.call(aliases, input)) return aliases[input];
+  let best = null;
+  let bestD = Infinity;
+  for (const c of candidates) {
+    const d = levenshtein(input, c);
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return (bestD <= 2 && bestD < input.length) ? best : null;
+}
+
+// Format the "unknown <thing>" usage error with an optional "did you mean" and a
+// trailing hint, and throw it as a usage (2) CliError. Centralizes the wording so
+// every dispatcher (top-level + webhook/daemon/install subverbs) reads the same.
+function failUnknown(thing, input, candidates, { aliases = {}, hint } = {}) {
+  const guess = suggest(input, candidates, aliases);
+  const dym = guess ? ` — did you mean \`${guess}\`?` : '';
+  fail(`unknown ${thing}: ${input}${dym}${hint ? `\n${hint}` : ''}`);
+}
+
+// Build forwards[] from repeated -L/-R/-D flags (each value parsed by ssh.parseForward).
+function collectForwards(flags) {
+  const ssh = require('./ssh');
+  const out = [];
+  for (const flag of ['-L', '-R', '-D']) {
+    for (const spec of flags[flag] || []) out.push(ssh.parseForward(flag, spec));
+  }
+  return out;
+}
+
+// Warn-only: print a stderr line for every endpoint `tunnel` shares with another
+// tunnel already in `cfg`. Never changes the exit code (Layer A's lock enforces).
+function warnEndpointConflicts(io, cfg, tunnel) {
+  const ssh = require('./ssh');
+  for (const c of ssh.endpointConflicts(cfg, tunnel)) {
+    errline(io, `warning: forward endpoint ${c.key} is also used by tunnel "${c.otherName}" — only one can bind; they will conflict if both run`);
+  }
+}
+
 module.exports = {
-  EXIT, parseFlags, jsonOut, line, errline, isInteractive, canPrompt, sleep, confirm,
-  printDaemonDown, pad,
+  EXIT, CliError, fail, parseFlags, jsonOut, line, errline, isInteractive, canPrompt, sleep, confirm,
+  printDaemonDown, pad, warnEndpointConflicts, collectForwards, levenshtein, suggest, failUnknown,
 };

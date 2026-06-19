@@ -386,7 +386,7 @@ test('renderLines detail: shows the ssh connect port and a copy-paste add comman
   const t = renderLines(DETAIL_STATE, DETAIL_UI, SIZE, { logs: LOGS }).join('\n');
   assert.match(t, /ssh\s+port 22/);
   assert.match(t, /add \(copy\):/);
-  assert.match(t, /tunlite add local db-5432 --to root@db\.internal --remote 5432/);
+  assert.match(t, /tunlite add db-5432 --to root@db\.internal -L 5432:localhost:5432/);
 });
 
 test('renderLines detail: a long add command wraps with backslash continuations, no ellipsis', () => {

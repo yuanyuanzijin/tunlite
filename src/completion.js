@@ -87,8 +87,8 @@ function removeFrom(shell, { home = os.homedir() } = {}) {
 // Single source of truth for shell completion: the user-facing verbs, and the
 // subset whose first positional is a tunnel name.
 const COMMANDS = [
-  'add', 'forward', 'set', 'rm', 'rename', 'list',
-  'up', 'down', 'restart',
+  'add', 'set', 'rm', 'rename', 'list',
+  'enable', 'disable', 'restart', 'run',
   'status', 'monitor', 'logs', 'doctor',
   'check', 'setup-key',
   'webhook', 'export', 'import',
@@ -96,7 +96,7 @@ const COMMANDS = [
   'daemon', 'version', 'help',
 ];
 
-const NAME_COMMANDS = ['up', 'down', 'restart', 'status', 'logs', 'rm', 'rename', 'set', 'doctor'];
+const NAME_COMMANDS = ['enable', 'disable', 'restart', 'status', 'logs', 'rm', 'rename', 'set', 'doctor'];
 
 // Tunnel names straight from config (no daemon). The generated scripts call
 // `tunlite completion names` to populate name-argument candidates.

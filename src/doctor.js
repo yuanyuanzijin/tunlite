@@ -141,7 +141,7 @@ async function diagnose(opts = {}) {
   } else if (dstat.running) {
     add('daemon', 'daemon', 'daemon', 'ok', 'running', null);
   } else {
-    add('daemon', 'daemon', 'daemon', 'fail', `${defined.length} tunnel(s) configured but the daemon is not running`, 'tunlite up');
+    add('daemon', 'daemon', 'daemon', 'fail', `${defined.length} tunnel(s) configured but the daemon is not running`, 'tunlite enable all');
   }
 
   let svc = null;
