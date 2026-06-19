@@ -84,16 +84,13 @@ tunlite logs web -f        # 跟随日志
 tunlite doctor             # 体检:为什么连不上
 ```
 
-> **从 0.9.x 升级?0.10.0 是破坏性版本。** 跑 `tunlite update`(或 `npx tunlite@latest install`)。
-> 已有的隧道配置照常能用,变的是**命令**:
-> - **转发改成 ssh 原生写法:**`add <名字> --to host -L 8080:localhost:80 -D 1080`。旧的
->   `add local … --remote/--local` 和单独的 `forward` 命令都没了 —— 改转发用 `set <名字> -L/-R/-D …`。
-> - **`up`/`down` → `enable`/`disable`,** 而且动作动词现在必须指明对象:`enable <名字>`、
->   `--tag <标签>` 或 `enable all`。打错或用了退役的词会提示正确的(`tunlite up` → "did you mean `enable`?")。
-> - **`install` 合并成一条引导式命令**(`install` / `install -y`);`--service`/`--skill`/`--completion`
->   这些旗标没了 —— 单独装某一块用 `install service|skill|completion`。
+> **从 0.9.x 升级?** 0.10.0 更拥抱原生 `ssh`,少数命令换了写法 —— 而你已有的隧道配置照常运行、纹丝不动。
+> - **转发现在直接说 ssh 自己的标志** —— `add web --to me@host -L 8080:localhost:80 -D 1080`
+>   (可重复;用 `set <名字>` 就地编辑)。早先的 `add local/remote/dynamic` 写法由此让位。
+> - **开关一条隧道现在是 `enable` / `disable`**(此前 `up`/`down`),每个都点明作用对象 ——
+>   名字、`--tag <标签>` 或 `all`。打错或用了退役的词,会温和地指向正确的那个(`tunlite up` → "did you mean `enable`?")。
 >
-> 用 `tunlite --version` 确认版本。
+> 跑 `tunlite update`(或 `npx tunlite@latest install`),再用 `tunlite --version` 确认。
 
 目标还没免密时,在终端跑 `tunlite enable <名字>` 会让你输一次密码并自动装公钥。也可显式来:
 `tunlite check user@server`(退出 0 = 已免密)/ `tunlite setup-key user@server`。

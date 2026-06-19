@@ -89,19 +89,16 @@ tunlite logs web -f        # follow logs
 tunlite doctor             # health check: why a tunnel won't connect
 ```
 
-> **Upgrading from 0.9.x? 0.10.0 is a breaking release.** Run `tunlite update` (or
-> `npx tunlite@latest install`). Your existing tunnel config keeps working; the *commands*
-> changed:
-> - **Forwards are ssh-native:** `add <name> --to host -L 8080:localhost:80 -D 1080`. The old
->   `add local … --remote/--local` and the separate `forward` command are gone — edit with
->   `set <name> -L/-R/-D …`.
-> - **`up`/`down` → `enable`/`disable`,** and the action verbs now need a target:
->   `enable <name>`, `--tag <label>`, or `enable all`. A retired or mistyped verb suggests
->   the right one (`tunlite up` → "did you mean `enable`?").
-> - **`install` is one guided command** (`install` / `install -y`); the `--service`/`--skill`/
->   `--completion` flags are gone — set up one piece with `install service|skill|completion`.
+> **Upgrading from 0.9.x?** 0.10.0 leans into native `ssh`, so a couple of commands take a
+> new shape — while your existing tunnel config keeps working, untouched.
+> - **Forwards now speak ssh's own flags** — `add web --to me@host -L 8080:localhost:80 -D 1080`
+>   (repeatable; `set <name>` edits them in place). The earlier `add local/remote/dynamic`
+>   form gives way to this.
+> - **Switching a tunnel on and off is now `enable` / `disable`** (it was `up`/`down`), each
+>   naming what it acts on — a name, `--tag <label>`, or `all`. A retired or mistyped verb
+>   gently points you to the right one (`tunlite up` → "did you mean `enable`?").
 >
-> Check your version with `tunlite --version`.
+> Run `tunlite update` (or `npx tunlite@latest install`), then `tunlite --version` to confirm.
 
 When the target isn't passwordless yet, running `tunlite enable <name>` in a terminal prompts for
 the password once and installs your key. Or do it explicitly: `tunlite check user@server`
