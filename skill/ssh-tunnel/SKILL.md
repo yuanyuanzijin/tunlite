@@ -25,9 +25,16 @@ ways to **seed** that one install — not separate tools to choose between. So, 
      anchor a stable copy. (Installed but merely old → `tunlite update`.)
 2. **After step 1, always just call `tunlite …`** — it resolves to the anchored copy. Stop
    deciding between `npx` / a bundled path / PATH; there is one tunlite now.
-3. **Persistence is one extra line, not a different path:** to survive reboots or run
-   unattended, also run `tunlite install service` (registers OS autostart). Same tool
-   either way — a throwaway tunnel and a permanent one differ only by that one command.
+3. **Persistence is one extra line — and you must offer it, not wait to be asked.**
+   A tunnel stays up only while the daemon does, and a bare `tunlite install` does
+   **not** register autostart (nor does `enable` — it only starts the daemon on
+   demand). So whenever a tunnel is meant to last, **proactively ask the user
+   whether it should keep running across reboots / logins.** If yes (or it's meant
+   to be permanent or unattended), run `tunlite install service` to register OS
+   autostart. A tunnel the user assumes is "always on" that silently vanishes after
+   a reboot is the most common surprise — don't skip the question; but don't enable
+   it without telling them either (it writes a real launchd/systemd/Task Scheduler
+   service).
 
 Newer than 0.10.x? Proceed anyway — don't stop because the tool is ahead. Only if a step
 below returns an unexpected usage (exit 2) or not-found (exit 3) error is the skill likely
@@ -66,6 +73,8 @@ tunlite add multi    --to user@host -L 8080:localhost:80 -D 1080 --json  # sever
 
 # 2. Turn it on (enables it, probes passwordless, auto-starts the daemon)
 tunlite enable web-8080 --json
+#   then ASK the user: should this survive reboot/login? if yes -> tunlite install service
+#   (enable alone does NOT restart the tunnel after a reboot; see "Autostart")
 
 # 3. Enumerate definitions / check structured runtime state
 tunlite list --json          # defined tunnels (from config)
@@ -121,6 +130,11 @@ isn't passwordless shows up as `state: "needs-auth"` and `tunlite status` exits 
   will not prompt — it starts the tunnel and reports `needs-auth`.
 
 ## Autostart (register the daemon to OS startup)
+
+**Ask the user about this proactively** whenever a tunnel should stay up — don't
+wait for them to bring it up. A tunnel survives reboot/login only if the daemon is
+registered to OS startup; `enable` alone does not do that. Confirm first (it writes
+a real launchd/systemd/Task Scheduler service), then:
 
 ```bash
 tunlite install service --json     # launchd (macOS) / systemd --user (Linux) / Task Scheduler (Windows, beta)

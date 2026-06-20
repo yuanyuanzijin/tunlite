@@ -289,7 +289,6 @@ nav {
   padding-right: 58px;
 }
 .agent-cta-box .copy { position: absolute; top: 11px; right: 11px; }
-.agent-or { text-align: center; margin: 22px 0 18px; font-family: var(--mono); font-size: 12px; color: var(--faint); }
 @media (max-width: 560px) {
   .agent-cta { padding: 24px 15px; }
   .agent-prompt { font-size: 12.5px; padding-right: 52px; }
@@ -459,28 +458,12 @@ h1.title .accent { color: var(--accent); }
 .term-table .tc { white-space: nowrap; }
 .term-table .th { color: var(--faint); }
 
-/* hero: two side-by-side cases — "you type it" vs "ask an AI agent" */
+/* hero: the "ask an AI Agent" conversation panel, centered under the hero copy */
 .hero-cases {
-  margin-top: 52px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 22px;
-  align-items: start;
+  margin: 48px auto 0;
+  max-width: 600px;
 }
-@media (max-width: 860px) { .hero-cases { grid-template-columns: 1fr; gap: 26px; } }
-/* on phones the stacked demos get very tall — keep only the on-point "ask an AI Agent" one */
-@media (max-width: 700px) { .hero-cases .case.case-you { display: none; } }
 .case { min-width: 0; }
-.case .terminal { margin-top: 0; }
-.case-tag {
-  display: flex; align-items: center; gap: 8px;
-  margin: 0 0 11px 2px;
-  font-family: var(--mono);
-  font-size: 12px;
-  letter-spacing: .4px;
-  color: var(--faint);
-}
-.case-tag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-deep); }
 
 /* Claude-Code-style conversation panel — mirrors the terminal look */
 .convo {
@@ -577,25 +560,8 @@ h1.title .accent { color: var(--accent); }
 .vcard code { font-family: var(--mono); color: var(--accent); font-size: .88em; }
 
 /* get-started block (landing) */
-.start-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
-.start-grid > * { min-width: 0; }
-@media (max-width: 760px) { .start-grid { grid-template-columns: 1fr; } }
-.start-step { font-family: var(--mono); font-size: 12.5px; color: var(--accent); margin: 0 0 12px; letter-spacing: .4px; text-transform: uppercase; }
-.start-pre {
-  font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.85;
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  padding: 18px 20px;
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.start-pre .c { color: var(--accent); }
-.start-pre .h { color: var(--faint); }
+.agent-or { text-align: center; margin: 22px 0 18px; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+.start-manual { max-width: 600px; margin: 0 auto; text-align: center; }
 .start-more { margin-top: 16px; font-family: var(--mono); font-size: 13.5px; }
 .start-more a { color: var(--accent); }
 .start-more a:hover { text-decoration: underline; }

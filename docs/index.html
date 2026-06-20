@@ -81,28 +81,6 @@
     </div>
 
     <div class="hero-cases" data-reveal>
-      <div class="case case-you">
-        <div class="case-tag"><span class="en">You type it</span><span class="zh">你自己敲</span></div>
-        <div class="terminal">
-          <div class="term-bar">
-            <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
-            <span class="tt">tunlite — ssh tunnels</span>
-          </div>
-          <div class="term-body">
-            <div class="ln cmd" style="animation-delay:.05s">tunlite add web-8080 --to deploy@app01 -L 8080:localhost:80</div>
-            <div class="ln ok"  style="animation-delay:.18s">  ✓ added web-8080   local  :8080 → app01:80 · daemon picked it up</div>
-            <div class="ln cmd" style="animation-delay:.34s">tunlite status</div>
-            <div class="term-table" style="animation-delay:.46s">
-              <span class="tc th">NAME</span><span class="tc th">STATE</span><span class="tc th">HOST</span><span class="tc th">TYPE</span><span class="tc th">ROUTE</span><span class="tc th">PID</span><span class="tc th">UP</span><span class="tc th">RESTARTS</span>
-              <span class="tc">web-8080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">local</span><span class="tc">:8080 → :80</span><span class="tc">41231</span><span class="tc">2s</span><span class="tc">0</span>
-              <span class="tc">rev-9000</span><span class="tc s-up">up</span><span class="tc s-host">edge02</span><span class="tc">remote</span><span class="tc">:9000 ← :3000</span><span class="tc">41209</span><span class="tc">1h02m</span><span class="tc s-r1">1</span>
-              <span class="tc">px-1080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">dynamic</span><span class="tc">socks5 :1080</span><span class="tc">41208</span><span class="tc">2h14m</span><span class="tc">0</span>
-            </div>
-            <div class="ln cmd cursor-ln" style="animation-delay:1.0s"></div>
-          </div>
-        </div>
-      </div>
-
       <div class="case">
         <div class="convo">
           <div class="term-bar">
@@ -112,8 +90,8 @@
           <div class="convo-body">
             <div class="msg user"><span class="en">Forward the Postgres on app01 to my laptop.</span><span class="zh">把 app01 上的 Postgres 转发到我电脑。</span></div>
             <div class="msg bot">
-              <span class="en">On it — adding a local forward; it comes up automatically.</span><span class="zh">好的，加一条本地转发，加完它自己就连上了。</span>
-              <div class="tool">tunlite add pg --to deploy@app01 -L 5432:localhost:5432 --json<span class="rc">ok · up</span></div>
+              <span class="en">On it — adding a local forward; it comes up automatically.</span><span class="zh">好的，加一条本地转发，我来帮你操作。</span>
+              <div class="tool">tunlite add pg --to deploy@app01 -L 5432:localhost:5432 --json<span class="rc">ok · starting</span></div>
             </div>
             <div class="msg bot">
               <span class="en">Connected — here's the status.</span><span class="zh">连上了，给你看下状态。</span>
@@ -154,6 +132,42 @@
 
 <div class="divider"></div>
 
+<!-- ============ GET STARTED ============ -->
+<section class="section" id="start">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <h2><span class="en">Get started in 30 seconds</span><span class="zh">30 秒上手</span></h2>
+    </div>
+
+    <div class="agent-cta" data-reveal>
+      <p class="agent-cta-eyebrow"><span class="en">Install with your AI Agent</span><span class="zh">让 AI Agent 帮你装</span></p>
+      <div class="agent-cta-box">
+        <pre class="agent-prompt"><code>Read and follow https://tunlite.dev/skill.txt
+to install tunlite (an SSH tunnel manager) and its skill.</code></pre>
+        <button class="copy" type="button">copy</button>
+      </div>
+    </div>
+
+    <p class="agent-or" data-reveal><span class="en">— or install it yourself —</span><span class="zh">—— 或者自己装 ——</span></p>
+
+    <div class="start-manual" data-reveal>
+      <div class="codeblock">
+        <span class="prompt">$</span>
+        <code>npx tunlite install</code>
+        <button class="copy" type="button">copy</button>
+      </div>
+      <p class="start-more"><span class="en">Prefer curl, or no Node? <a href="docs.html#install">More install options →</a></span><span class="zh">想用 curl，或没装 Node？<a href="docs.html#install">更多安装方式 →</a></span></p>
+    </div>
+
+    <p class="start-more" data-reveal style="margin-top:30px;text-align:center">
+      <span class="en">Everything else — multi-forwards, daemon-less <code>run</code>, jump hosts, tags, webhooks — is in the <a href="docs.html">full documentation →</a></span>
+      <span class="zh">其余的 —— 多转发、无守护进程的 <code>run</code>、跳板机、标签、webhook —— 都在<a href="docs.html">完整文档里 →</a></span>
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
 <!-- ============ SEE IT — everyday run ============ -->
 <section class="section">
   <div class="wrap">
@@ -181,52 +195,6 @@
       <img src="monitor.gif" alt="tunlite monitor — live top-style dashboard with auto-reconnect" loading="lazy" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.45)">
       <figcaption style="margin-top:14px;color:var(--muted,#9aa);font-size:14px"><span class="en"><code>tunlite monitor</code> — a live dashboard for every tunnel's state, with auto-reconnect in front of you.</span><span class="zh"><code>tunlite monitor</code> —— 每条隧道的状态尽在掌控,守护进程在你眼前自动重连。</span></figcaption>
     </figure>
-  </div>
-</section>
-
-<div class="divider"></div>
-
-<!-- ============ GET STARTED ============ -->
-<section class="section" id="start">
-  <div class="wrap">
-    <div class="sec-head" data-reveal>
-      <h2><span class="en">Get started in 30 seconds</span><span class="zh">30 秒上手</span></h2>
-    </div>
-
-    <div class="agent-cta" data-reveal>
-      <p class="agent-cta-eyebrow"><span class="en">Install with your AI Agent</span><span class="zh">让 AI Agent 帮你装</span></p>
-      <div class="agent-cta-box">
-        <pre class="agent-prompt"><code>Read and follow https://tunlite.dev/skill.txt
-to install tunlite (an SSH tunnel manager) and its skill.</code></pre>
-        <button class="copy" type="button">copy</button>
-      </div>
-    </div>
-    <p class="agent-or" data-reveal><span class="en">— or set it up yourself —</span><span class="zh">—— 或者自己来 ——</span></p>
-
-    <div class="start-grid">
-      <div data-reveal>
-        <p class="start-step"><span class="en">Install</span><span class="zh">安装</span></p>
-        <div class="codeblock">
-          <span class="prompt">$</span>
-          <code>npx tunlite install</code>
-          <button class="copy" type="button">copy</button>
-        </div>
-        <p class="start-more"><span class="en">Prefer curl, or no Node? <a href="docs.html#install">More install options →</a></span><span class="zh">想用 curl，或没装 Node？<a href="docs.html#install">更多安装方式 →</a></span></p>
-      </div>
-
-      <div data-reveal>
-        <p class="start-step"><span class="en">Define &amp; bring up</span><span class="zh">定义并启动</span></p>
-<pre class="start-pre"><span class="h"># reach server's :80 on your local :8080</span>
-<span class="c">$</span> tunlite add web-8080 --to me@host -L 8080:localhost:80
-<span class="c">$</span> tunlite status
-<span class="c">$</span> tunlite logs web-8080 -f</pre>
-      </div>
-    </div>
-
-    <p class="start-more" data-reveal style="margin-top:34px">
-      <span class="en">That's the whole flow. Everything else — multi-forwards, daemon-less <code>run</code>, jump hosts, tags, webhooks, the Agent skill — is in the <a href="docs.html">full documentation →</a></span>
-      <span class="zh">整个流程就这些。其余的 —— 多转发、无守护进程的 <code>run</code>、跳板机、标签、webhook、Agent skill —— 都在<a href="docs.html">完整文档里 →</a></span>
-    </p>
   </div>
 </section>
 
