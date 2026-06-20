@@ -9,6 +9,29 @@ release process.
 > tunlite debuted publicly at **0.9.0**. Earlier `0.x` releases were a private
 > prototype and are not part of this public history.
 
+## [0.10.1] - 2026-06-20
+
+### Added
+- `tunlite doctor` now reports **agent-skill freshness** — a `skill-fresh` check
+  that warns when an installed copy of the bundled `ssh-tunnel` skill has drifted
+  behind the one this version ships (the usual cause: `tunlite update` bumped the
+  tool but the skill copy stayed behind). It compares content, not a version stamp,
+  so a release that didn't touch the skill flags nothing. Refresh with
+  `tunlite install skill`.
+
+### Changed
+- The bundled **`ssh-tunnel` agent skill** now tells the agent to **proactively ask
+  whether a tunnel should start at login/boot** and, on a yes, run
+  `tunlite install service`. Neither a bare `install` nor `enable` registers OS
+  autostart, so a tunnel meant to be "always on" no longer silently vanishes after a
+  reboot. The skill's install bootstrap (Step 0) was also rewritten around a single
+  anchored install — every entry point (npm, curl, bundled copy) just seeds it.
+
+### Docs
+- README and the doc site now lead with tunlite's agent-first story ("for you and
+  your Agent"), and a new plain-text guide at `tunlite.dev/skill.txt` lets an AI
+  Agent install tunlite and register its skill by reading one link.
+
 ## [0.10.0] - 2026-06-19
 
 ### Changed (BREAKING)
@@ -246,6 +269,7 @@ First public release.
   or a single quote before building the remote command, closing a shell-injection
   path through a crafted key comment.
 
+[0.10.1]: https://github.com/yuanyuanzijin/tunlite/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.5...v0.10.0
 [0.9.5]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.3...v0.9.4
