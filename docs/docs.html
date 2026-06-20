@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Documentation · tunlite · 文档</title>
-<meta name="description" content="tunlite documentation — install, quick start, forwards, commands, jump hosts, tags, webhooks, and the agent skill. tunlite 完整文档。">
+<meta name="description" content="tunlite documentation — install, quick start, forwards, commands, jump hosts, tags, webhooks, and the Agent skill. tunlite 完整文档。">
 <meta name="theme-color" content="#07090a">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23090d0e'/%3E%3Cpath d='M9 11l5 5-5 5' fill='none' stroke='%2335e6c0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 21h7' stroke='%2335e6c0' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -71,7 +71,7 @@
       <a href="#webhooks"><span class="en">Webhooks</span><span class="zh">告警 webhook</span></a>
       <a href="#import-export"><span class="en">Import / export</span><span class="zh">导入导出</span></a>
       <a href="#completion"><span class="en">Shell completion</span><span class="zh">Shell 补全</span></a>
-      <a href="#agents"><span class="en">For agents</span><span class="zh">给 Agent 用</span></a>
+      <a href="#Agents"><span class="en">For Agents</span><span class="zh">给 Agent 用</span></a>
 
       <div class="sb-group"><span class="en">More</span><span class="zh">更多</span></div>
       <a href="#config"><span class="en">Config paths</span><span class="zh">配置路径</span></a>
@@ -115,7 +115,7 @@
         <button class="copy" type="button">copy</button>
       </div>
 
-      <p class="note"><span class="en"><code>tunlite install</code> copies the runtime to a fixed directory and writes a launcher that <b>pins node's absolute path</b> (switching nvm/fnm won't break it). Run interactively, it also offers to register login autostart and install the agent skill. A short <code>tun</code> alias is added too (skipped with a notice if the name is already taken).</span><span class="zh"><code>tunlite install</code> 把运行时拷到固定目录，并写一个<b>钉死 node 绝对路径</b>的 launcher（切换 nvm/fnm 也不受影响）。交互运行时还会问你是否注册开机自启、安装 agent skill。也会顺带写一个短别名 <code>tun</code>（若已被占用则跳过并提示）。</span></p>
+      <p class="note"><span class="en"><code>tunlite install</code> copies the runtime to a fixed directory and writes a launcher that <b>pins node's absolute path</b> (switching nvm/fnm won't break it). Run interactively, it also offers to register login autostart and install the Agent skill. A short <code>tun</code> alias is added too (skipped with a notice if the name is already taken).</span><span class="zh"><code>tunlite install</code> 把运行时拷到固定目录，并写一个<b>钉死 node 绝对路径</b>的 launcher（切换 nvm/fnm 也不受影响）。交互运行时还会问你是否注册开机自启、安装 Agent skill。也会顺带写一个短别名 <code>tun</code>（若已被占用则跳过并提示）。</span></p>
 
       <div class="callout warn"><span class="en"><b>Windows support is beta.</b> macOS and Linux are the primary, CI-tested platforms; Windows (Task Scheduler autostart, <code>.cmd</code> launcher, PATH setup) works but is less battle-tested — please report rough edges.</span><span class="zh"><b>Windows 支持目前为 beta。</b> macOS 和 Linux 是主力、有 CI 覆盖的平台；Windows（任务计划自启、<code>.cmd</code> launcher、PATH 设置）能用，但验证较少 —— 遇到问题欢迎反馈。</span></div>
     </section>
@@ -156,7 +156,7 @@
 <span class="c">$</span> tunlite uninstall --force    <span class="h"># skip the confirmation</span>
 <span class="c">$</span> tunlite uninstall --purge    <span class="h"># also remove config and logs</span>
 <span class="c">$</span> tunlite uninstall service    <span class="h"># remove autostart only</span></pre>
-      <p class="note"><span class="en">Interactive <code>uninstall</code> asks for confirmation and warns if any tunnels are currently up. <code>--force</code> (or <code>--json</code> for scripts/agents) skips the prompt.</span><span class="zh">交互式 <code>uninstall</code> 会先确认，并在有隧道正在运行时提示。<code>--force</code>（脚本/agent 用 <code>--json</code>）可跳过确认。</span></p>
+      <p class="note"><span class="en">Interactive <code>uninstall</code> asks for confirmation and warns if any tunnels are currently up. <code>--force</code> (or <code>--json</code> for scripts/Agents) skips the prompt.</span><span class="zh">交互式 <code>uninstall</code> 会先确认，并在有隧道正在运行时提示。<code>--force</code>（脚本/Agent 用 <code>--json</code>）可跳过确认。</span></p>
     </section>
 
     <!-- HOW IT WORKS -->
@@ -319,10 +319,10 @@
     </section>
 
     <!-- FOR AGENTS -->
-    <section id="agents">
-      <h2><span class="en">For agents</span><span class="zh">给 Agent 用</span></h2>
-      <p><span class="en">Agents are a first-class user. Every command takes <code>--json</code> and returns a stable exit code, so an agent acts on results without scraping prose. The bundled <code>ssh-tunnel</code> skill — installed with <code>tunlite install skill</code> and shipped in the npm package — tells an agent exactly how to drive <code>tunlite</code>: <code>--json</code>, branching on exit codes, and how to handle <code>needs-auth</code>.</span><span class="zh">agent 是一等用户。每个命令都接受 <code>--json</code> 并返回稳定退出码，agent 拿到结果就能直接判断，不用解析人话。内置的 <code>ssh-tunnel</code> skill —— 用 <code>tunlite install skill</code> 安装、随 npm 包一起发布 —— 告诉 agent 怎么驱动 <code>tunlite</code>：<code>--json</code>、按退出码分支、处理 <code>needs-auth</code>。</span></p>
-      <p><a class="ext" href="https://github.com/yuanyuanzijin/tunlite/blob/master/skill/ssh-tunnel/SKILL.md" target="_blank" rel="noopener"><span class="en">Read the agent skill (SKILL.md) →</span><span class="zh">阅读 agent skill（SKILL.md）→</span></a></p>
+    <section id="Agents">
+      <h2><span class="en">For Agents</span><span class="zh">给 Agent 用</span></h2>
+      <p><span class="en">Agents are a first-class user. Every command takes <code>--json</code> and returns a stable exit code, so an Agent acts on results without scraping prose. The bundled <code>ssh-tunnel</code> skill — installed with <code>tunlite install skill</code> and shipped in the npm package — tells an Agent exactly how to drive <code>tunlite</code>: <code>--json</code>, branching on exit codes, and how to handle <code>needs-auth</code>.</span><span class="zh">Agent 是一等用户。每个命令都接受 <code>--json</code> 并返回稳定退出码，Agent 拿到结果就能直接判断，不用解析人话。内置的 <code>ssh-tunnel</code> skill —— 用 <code>tunlite install skill</code> 安装、随 npm 包一起发布 —— 告诉 Agent 怎么驱动 <code>tunlite</code>：<code>--json</code>、按退出码分支、处理 <code>needs-auth</code>。</span></p>
+      <p><a class="ext" href="https://github.com/yuanyuanzijin/tunlite/blob/master/skill/ssh-tunnel/SKILL.md" target="_blank" rel="noopener"><span class="en">Read the Agent skill (SKILL.md) →</span><span class="zh">阅读 Agent skill（SKILL.md）→</span></a></p>
     </section>
 
     <!-- CONFIG PATHS -->

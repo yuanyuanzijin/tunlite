@@ -1,6 +1,7 @@
 # Tunlite
 
-> **让 SSH 隧道一直在线** —— 声明式配置、自动重连、对 AI agent 友好。
+> **SSH 隧道,你和 Agent 用着都顺手** —— 自己敲 `-L`/`-R`/`-D` 也行,用大白话交给 AI Agent
+> 也行;tunlite 替你建好、连上、断了自动重连。
 
 [English](README.md) · **简体中文**
 
@@ -10,21 +11,38 @@
 [![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen)](https://nodejs.org)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-轻量、跨平台的 **SSH 隧道管理器** —— 用一个 CLI 取代
-*autossh + 每条隧道一个 systemd 单元 + 一堆记不住的 `-L`/`-R`/`-D`*。一次定义命名隧道,
-一个**零依赖**的小守护进程保持它们连接、开机自启、并帮你打通免密。每个命令都讲
-**`--json`** 和稳定退出码,所以 **AI agent 用起来和你一样顺手**。
+挂 SSH 隧道有多烦,用过的都懂:老手要配 `autossh`、写 `systemd` 单元、记一堆
+`-L`/`-R`/`-D`,断了还得手动重连;新手连免密、参数都不知道从哪下手。**tunlite** 把这些
+全收进一个命令——自己敲,或用大白话交给 **AI Agent**,它替你建好、连上、断了自动重连。
+纯 Node.js、**零依赖**,封装你本就信任的 `ssh`。
 
 <p align="center"><img src="https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/docs/demo.gif" alt="定义隧道、守护进程自动拉起、查看状态、跟踪日志" width="760"></p>
 
 > 📖 **完整文档 → [tunlite.dev](https://tunlite.dev/)**
 
-- **面向 agent** —— 每个命令都支持 `--json`、退出码稳定,并自带一个 agent skill。
+- **面向 Agent** —— 每个命令都讲 `--json`、退出码稳定,还随包发一份 Agent skill:AI Agent 能端到端地建好、拉起、排障隧道。
 - **零第三方依赖** —— 纯 Node.js 标准库;机器上只需 **Node ≥ 18** 和它封装的系统 `ssh`。
 - **自动重连** —— 指数退避 + 抖动、keepalive、端口健康探测。
 - **开机自启** —— launchd(macOS)/ systemd 用户服务(Linux)/ 计划任务(Windows,beta)。
 - **免密打通** —— 已能免密则直连;只在需要时帮你装公钥。
 - **三种转发** —— 本地 `-L`、远程 `-R`、动态 SOCKS `-D`。
+
+## 给 Agent 用
+
+**AI Agent** 是一等用户。用大白话跟它说一句,它就通过和你一样的 `--json` 接口驱动
+`tunlite` —— 按退出码分支,而不是解析自然语言:
+
+```text
+你    ▸ "把 app01 上的 Postgres 转发到我电脑。"
+Agent ▸ tunlite add pg --to deploy@app01 -L 5432:localhost:5432 --json   → {"ok":true,…}
+Agent ▸ tunlite enable pg --json                                         → exit 4 · needs-auth
+Agent ▸ tunlite setup-key deploy@app01                                   → 公钥已安装
+Agent ▸ tunlite enable pg --json                                         → {"state":"connected"} · exit 0
+Agent ▸ "搞定 —— localhost:5432 已通到 app01 的 Postgres,守护进程会保活它。"
+```
+
+随包附带的 [`skill/ssh-tunnel`](skill/ssh-tunnel/SKILL.md)(由 `tunlite install skill` 安装)
+告诉 Agent 具体怎么做:`--json`、按退出码分支、处理 `needs-auth`。
 
 `tunlite monitor` 提供一个实时的 top 式面板 —— 一眼看清每条隧道的状态,守护进程会在你
 眼前把掉线的那条自动重连回来:
@@ -37,17 +55,17 @@
 一条到预发数据库的端口转发 —— 你大概给每条都配了 `autossh` 加一个 `systemd`/`launchd`
 单元,还得记住哪个 `-L`/`-R`/`-D` 对应哪条。tunlite 把这些折进一个声明式 CLI,跑在你本就
 信任的 `ssh` 之上:命名隧道由守护进程保活、由系统开机拉起 —— 不引入新服务、不开账号、
-不造新协议。而且每个命令都是 `--json` + 稳定退出码,agent 操作的就是你操作的同一套接口。
+不造新协议。而且每个命令都是 `--json` + 稳定退出码,Agent 操作的就是你操作的同一套接口。
 
 | | tunlite | autossh | 裸 `ssh -L/-R/-D` | sshuttle | frp · bore · chisel | ngrok |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
+| 对 Agent 友好(`--json` / 稳定退出码) | ✅ | ❌ | ❌ | ❌ | ❌ | 部分 |
 | 封装系统 `ssh`(密钥 / 跳板 / `ssh_config`) | ✅ | ✅ | ✅ | 部分 | ❌ 自有协议 | ❌ 自有服务 |
 | 命名、声明式隧道 | ✅ | ❌ | ❌ | ❌ | ✅ 配置 | ✅ |
 | 自动重连(退避 / keepalive / 健康) | ✅ | 基础 | ❌ | ❌ | ✅ | ✅ |
 | 开机自启(launchd/systemd/计划任务) | ✅ | 自己搞 | 自己搞 | 自己搞 | 自己搞 | ✅ |
 | 本地 **+** 远程 **+** 动态 SOCKS | ✅ | ✅ | ✅ | 透明代理 | 不一 | 不一 |
 | 零依赖 · 无需自建服务端 · 自托管 | ✅ | 需 autossh | ✅ | 需 python | 需服务端 | 托管/收费 |
-| 对 agent 友好(`--json` / 稳定退出码) | ✅ | ❌ | ❌ | ❌ | ❌ | 部分 |
 
 ## 安装
 
@@ -65,7 +83,7 @@ irm https://raw.githubusercontent.com/yuanyuanzijin/tunlite/master/bootstrap.ps1
 ```
 
 `tunlite install` 会把运行时复制到固定目录,并写一个**钉死 node 绝对路径**的启动器
-(这样 nvm/fnm 切版本也不会让它失效),然后逐项询问是否注册开机自启、安装 agent skill、
+(这样 nvm/fnm 切版本也不会让它失效),然后逐项询问是否注册开机自启、安装 Agent skill、
 启用 shell 补全。加 `-y` 可一口气全装、不再询问(适合脚本 / CI);不加 `-y` 又没有终端时
 只做"落地"。想单独装某一件,用 `tunlite install service` / `install skill` /
 `install completion`。`tun` 这个短名空闲时也会顺带写一个。**Windows(自启 / 启动器 /
@@ -122,7 +140,7 @@ doctor                     为什么隧道连不上
 check / setup-key          探测 / 安装免密访问
 webhook …                  掉线告警到 webhook(generic · 企业微信)
 export / import            备份 / 合并隧道
-install [service|skill|completion] / uninstall    锚定运行时 · 自启 · agent skill · Tab 补全
+install [service|skill|completion] / uninstall    锚定运行时 · 自启 · Agent skill · Tab 补全
 update                     从 GitHub 自更新
 ```
 
@@ -169,12 +187,6 @@ tunlite run --to me@host -R 9000:localhost:3000 --name rev --json --exit-on-fail
 `--name` 为该临时隧道设置标签(默认使用目标主机名)。`--json` 在 stdout 输出 NDJSON 状态行(每次状态变化
 一行 JSON)。`--exit-on-failure` 失败即以非零码退出而非重试 —— `needs-auth` → `4`、
 `blocked`/`failed` → `1` —— 方便上层 supervisor 重启。
-
-## 给 Agent 用
-
-agent 是一等用户:每个命令都支持 `--json` 并返回稳定退出码,无需解析自然语言即可据结果行动。
-随包附带的 [`skill/ssh-tunnel`](skill/ssh-tunnel/SKILL.md)(由 `tunlite install skill` 安装)
-告诉 agent 怎么驱动 `tunlite` —— `--json`、按退出码分支、处理 `needs-auth`。
 
 ## 版本与许可
 

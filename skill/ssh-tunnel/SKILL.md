@@ -10,11 +10,28 @@ background daemon that auto-reconnects and can be registered to OS startup.
 **Always pass `--json`** for machine-readable output, and **branch on the exit
 code** rather than parsing prose.
 
-> **Requires tunlite 0.10.x.** This skill drives the ssh-native interface
-> (`-L`/`-R`/`-D`, the `run` command, `set` as the forward editor). If `tunlite
-> --version` reports 0.9.x or earlier, that interface does not exist there
-> (forwards used `add local … --remote/--local` and a `forward` command, both
-> removed in 0.10.0) — upgrade with `tunlite update`.
+## Step 0 — get `tunlite`, then just use it
+
+There is **one** operational tunlite: an *anchored* install (a stable copy with a pinned
+node path). npm, the curl bootstrap, and any copy bundled with this skill are all just
+ways to **seed** that one install — not separate tools to choose between. So, once, up front:
+
+1. Run `tunlite --version`.
+   - **`0.10.0` or newer** → you're set.
+   - **`command not found`, or `0.9.x` or earlier** (missing, or below this skill's floor
+     of **≥ 0.10.0** — the ssh-native `-L`/`-R`/`-D` + `run` + `set` surface): **seed it,
+     and tell the user — never install silently.** If this skill bundle ships a copy, run
+     `node <this-skill-dir>/bin/tunlite.js install`; otherwise `npx tunlite install`. Both
+     anchor a stable copy. (Installed but merely old → `tunlite update`.)
+2. **After step 1, always just call `tunlite …`** — it resolves to the anchored copy. Stop
+   deciding between `npx` / a bundled path / PATH; there is one tunlite now.
+3. **Persistence is one extra line, not a different path:** to survive reboots or run
+   unattended, also run `tunlite install service` (registers OS autostart). Same tool
+   either way — a throwaway tunnel and a permanent one differ only by that one command.
+
+Newer than 0.10.x? Proceed anyway — don't stop because the tool is ahead. Only if a step
+below returns an unexpected usage (exit 2) or not-found (exit 3) error is the skill likely
+stale; refresh it with `tunlite install skill` and re-read before retrying.
 
 ## Exit codes (stable — branch on these)
 

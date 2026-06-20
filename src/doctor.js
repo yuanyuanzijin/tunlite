@@ -9,6 +9,7 @@ const paths = require('./paths');
 const ipc = require('./ipc');
 const installer = require('./install');
 const autostart = require('./autostart');
+const skillmod = require('./skill');
 const { probePort } = require('./supervisor');
 
 // Read-only default key lookup — never generates (unlike ssh.ensureKeypair).
@@ -44,6 +45,7 @@ function defaultDeps() {
     daemonStatus: defaultDaemonStatus,
     serviceStatus: () => autostart.adapterFor().status(autostart.context()),
     loadConfig: (file) => config.load(file),
+    skillFreshness: () => skillmod.freshness(),
   };
 }
 
@@ -124,6 +126,26 @@ async function diagnose(opts = {}) {
       nodeOk ? null : 'tunlite install   (re-pick a stable node)');
   } else {
     add('install', 'pinned-node', 'pinned node', 'info', 'no install manifest yet (covered by: anchored)', null);
+  }
+
+  // agent skill freshness — flag installed copies that drifted behind the bundled
+  // skill (the usual cause: `tunlite update` bumped the tool but not the skill).
+  const skills = d.skillFreshness();
+  if (skills && skills.length) {
+    const stale = skills.filter((s) => s.state === 'stale').length;
+    const missing = skills.filter((s) => s.state === 'missing').length;
+    if (stale) {
+      add('install', 'skill-fresh', 'agent skill', 'warn',
+        `${stale} installed agent skill${stale > 1 ? 's are' : ' is'} older than the bundled one`,
+        'tunlite install skill   (refresh after updating tunlite)');
+    } else if (missing) {
+      add('install', 'skill-fresh', 'agent skill', 'warn',
+        `${missing} recorded skill install${missing > 1 ? 's are' : ' is'} missing`,
+        'tunlite install skill');
+    } else {
+      add('install', 'skill-fresh', 'agent skill', 'ok',
+        `up to date (${skills.length} install${skills.length > 1 ? 's' : ''})`, null);
+    }
   }
 
   // config

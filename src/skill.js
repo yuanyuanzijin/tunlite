@@ -63,6 +63,33 @@ function removeRecorded(targets) {
   return removed;
 }
 
+// Compare each recorded skill install against the bundled SKILL.md the running
+// runtime ships (which always matches THIS CLI version). Symlinked installs are
+// live, so they're current by definition. A copied install whose SKILL.md differs
+// from the bundled one is 'stale' — the usual cause is `tunlite update` bumping
+// the bundled skill while the installed copy stayed behind. Comparing content
+// (not a version stamp) means zero false positives: a release that didn't touch
+// the skill leaves copies byte-identical, so nothing is flagged.
+// Returns [{ dest, state: 'ok' | 'stale' | 'missing' | 'link' }].
+function freshness(opts = {}) {
+  const fsm = opts.fs || fs;
+  const bundledFile = path.join(opts.sourceDir || sourceDir(), 'SKILL.md');
+  let ref = null;
+  try { ref = fsm.readFileSync(bundledFile, 'utf8'); } catch (_) { /* unreadable → can't compare */ }
+  const out = [];
+  for (const dest of (opts.manifest || readManifest())) {
+    let st = null;
+    try { st = fsm.lstatSync(dest); } catch (_) { out.push({ dest, state: 'missing' }); continue; }
+    if (st.isSymbolicLink()) { out.push({ dest, state: 'link' }); continue; }
+    let cur = null;
+    try { cur = fsm.readFileSync(path.join(dest, 'SKILL.md'), 'utf8'); } catch (_) { /* gone */ }
+    if (cur == null) out.push({ dest, state: 'missing' });
+    else if (ref == null) out.push({ dest, state: 'ok' }); // no reference to compare → don't nag
+    else out.push({ dest, state: cur === ref ? 'ok' : 'stale' });
+  }
+  return out;
+}
+
 module.exports = {
-  SKILL_NAME, sourceDir, manifestFile, readManifest, writeManifest, resolveDir, removeRecorded,
+  SKILL_NAME, sourceDir, manifestFile, readManifest, writeManifest, resolveDir, removeRecorded, freshness,
 };

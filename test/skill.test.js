@@ -47,3 +47,40 @@ test('sourceDir: returns the running-copy path (for a stable error) when nothing
   assert.equal(got, path.join(run, 'skill', skill.SKILL_NAME));
   assert.ok(!fs.existsSync(path.join(got, 'SKILL.md')));
 });
+
+// Plant an installed copy dir holding a SKILL.md with the given body.
+function plantCopy(body) {
+  const dest = path.join(tmp(), skill.SKILL_NAME);
+  fs.mkdirSync(dest, { recursive: true });
+  fs.writeFileSync(path.join(dest, 'SKILL.md'), body);
+  return dest;
+}
+
+test('freshness: identical copy is ok, drifted copy is stale', () => {
+  const bundled = plantSkill(tmp());            // bundled SKILL.md (reference)
+  const ref = fs.readFileSync(path.join(bundled, 'SKILL.md'), 'utf8');
+  const okDest = plantCopy(ref);                // byte-identical → current
+  const staleDest = plantCopy(ref + '\n# drifted\n');
+  const res = skill.freshness({ sourceDir: bundled, manifest: [okDest, staleDest] });
+  const state = Object.fromEntries(res.map((r) => [r.dest, r.state]));
+  assert.equal(state[okDest], 'ok');
+  assert.equal(state[staleDest], 'stale');
+});
+
+test('freshness: symlink install is live, missing dest reported', () => {
+  const bundled = plantSkill(tmp());
+  const linkDest = path.join(tmp(), skill.SKILL_NAME);
+  fs.symlinkSync(bundled, linkDest);            // points at the live source
+  const gone = path.join(tmp(), 'never-installed');
+  const res = skill.freshness({ sourceDir: bundled, manifest: [linkDest, gone] });
+  const state = Object.fromEntries(res.map((r) => [r.dest, r.state]));
+  assert.equal(state[linkDest], 'link');
+  assert.equal(state[gone], 'missing');
+});
+
+test('freshness: unreadable bundled reference does not nag (copy reported ok)', () => {
+  const noBundle = path.join(tmp(), 'skill', skill.SKILL_NAME);  // no SKILL.md planted
+  const dest = plantCopy('---\nname: ssh-tunnel\n---\nanything\n');
+  const res = skill.freshness({ sourceDir: noBundle, manifest: [dest] });
+  assert.equal(res[0].state, 'ok');
+});

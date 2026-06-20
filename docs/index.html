@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>tunlite — SSH tunnels, kept alive · 轻量 SSH 隧道管理器</title>
-<meta name="description" content="tunlite replaces autossh + a systemd unit per tunnel with one declarative, zero-dependency CLI. Named SSH tunnels a daemon keeps alive, login autostart, passwordless setup — and --json on every command, so agents drive it too. 轻量、跨平台的 SSH 隧道管理器。">
+<title>tunlite — Agent-native SSH tunnels, kept alive · Agent 原生 SSH 隧道管理器</title>
+<meta name="description" content="Ask an AI Agent to set up an SSH tunnel and watch it go live. tunlite speaks --json with stable exit codes on every command and ships an Agent skill, so an Agent drives it the way you would; a zero-dependency daemon keeps it alive. 轻量、跨平台的 Agent 原生 SSH 隧道管理器。">
 <meta name="theme-color" content="#07090a">
 <meta property="og:type" content="website">
-<meta property="og:title" content="tunlite — SSH tunnels, kept alive">
-<meta property="og:description" content="Replaces autossh + a systemd unit per tunnel with one declarative CLI. Named tunnels, auto-reconnect, login autostart, passwordless setup. Zero deps — and --json on every command, so agents drive it too.">
+<meta property="og:title" content="tunlite — Agent-native SSH tunnels, kept alive">
+<meta property="og:description" content="Ask an AI Agent to set up an SSH tunnel and watch it go live. Every command speaks --json with stable exit codes; a zero-dependency daemon keeps it alive. Powerful, lightweight, wraps your system ssh.">
 <meta property="og:url" content="https://tunlite.dev/">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23090d0e'/%3E%3Cpath d='M9 11l5 5-5 5' fill='none' stroke='%2335e6c0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M17 21h7' stroke='%2335e6c0' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -50,28 +50,28 @@
 <header class="hero">
   <div class="hero-glow" aria-hidden="true"></div>
   <div class="wrap">
-    <span class="eyebrow"><span class="dot"></span><span class="en">Lightweight SSH tunnel manager</span><span class="zh">轻量 SSH 隧道管理器</span></span>
+    <span class="eyebrow"><span class="dot"></span><span class="en">Agent-native SSH tunnel manager</span><span class="zh">Agent 原生 SSH 隧道管理器</span></span>
 
     <h1 class="title">
-      <span class="en">SSH tunnels,<br><span class="accent">kept alive.</span></span>
-      <span class="zh">SSH 隧道，<br><span class="accent">持续在线。</span></span>
+      <span class="en">SSH tunnels<br><span class="accent">for you and your Agent</span></span>
+      <span class="zh">SSH 隧道<br><span class="accent">你和 Agent 用着都顺手</span></span>
     </h1>
 
     <p class="lede">
-      <span class="en"><b>tunlite</b> replaces <i>autossh + a systemd unit per tunnel</i> with one declarative CLI. Define named tunnels once; a tiny <b>zero-dependency</b> daemon keeps them connected, restarts them at login, and sets up passwordless access — and every command speaks <b>--json</b>, so agents drive it as easily as you do.</span>
-      <span class="zh"><b>tunlite</b> 用一个声明式 CLI 取代「autossh + 每条隧道一个 systemd 单元」。一次定义命名隧道，由一个<b>零依赖</b>的小守护进程保持连接、开机自启、自动免密打通 —— 每个命令都讲 <b>--json</b>，agent 用起来和你一样顺手。</span>
+      <span class="en">Keeping SSH tunnels alive is a chore: pros juggle <code>autossh</code>, a <code>systemd</code> unit per tunnel, and a pile of <code>-L</code>/<code>-R</code>/<code>-D</code> flags — and reconnect by hand when one drops; newcomers don't even know where to start. <b>tunlite</b> folds it into one command: type it yourself, or just tell an <b>AI Agent</b> — it builds the tunnel, connects, and reconnects on its own.</span>
+      <span class="zh">挂 SSH 隧道有多烦，用过的都懂：老手要配 <code>autossh</code>、写 <code>systemd</code> 单元、记一堆 <code>-L</code>/<code>-R</code>/<code>-D</code>，断了还得手动重连；新手连免密、参数都不知道从哪下手。<b>tunlite</b> 全收进一个命令——自己敲，或用大白话交给 <b>AI Agent</b>，它替你建好、连上、断了自动重连。</span>
     </p>
 
     <div class="hero-meta">
       <span><span class="en">Agent-native</span><span class="zh">Agent 原生</span></span>
-      <span><span class="en">Pure Node.js</span><span class="zh">纯 Node.js</span></span>
-      <span><span class="en">Zero deps</span><span class="zh">零依赖</span></span>
+      <span><span class="en">Live status</span><span class="zh">实时状态</span></span>
+      <span><span class="en">Lightweight</span><span class="zh">轻量</span></span>
       <span>MIT</span>
     </div>
 
     <div class="cta">
-      <a class="btn btn-primary" href="docs.html">
-        <span class="en">Read the docs</span><span class="zh">阅读文档</span>
+      <a class="btn btn-primary" href="#start">
+        <span class="en">Get started</span><span class="zh">立即上手</span>
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
       </a>
       <a class="btn btn-ghost" href="https://github.com/yuanyuanzijin/tunlite" target="_blank" rel="noopener">
@@ -80,22 +80,48 @@
       </a>
     </div>
 
-    <div class="terminal" data-reveal>
-      <div class="term-bar">
-        <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
-        <span class="tt">tunlite — ssh tunnels</span>
-      </div>
-      <div class="term-body">
-        <div class="ln cmd" style="animation-delay:.05s">tunlite add web-8080 --to deploy@app01 -L 8080:localhost:80</div>
-        <div class="ln ok"  style="animation-delay:.18s">  ✓ added web-8080   local  :8080 → app01:80 · daemon picked it up</div>
-        <div class="ln cmd" style="animation-delay:.34s">tunlite status</div>
-        <div class="term-table" style="animation-delay:.46s">
-          <span class="tc th">NAME</span><span class="tc th">STATE</span><span class="tc th">HOST</span><span class="tc th">TYPE</span><span class="tc th">ROUTE</span><span class="tc th">PID</span><span class="tc th">UP</span><span class="tc th">RESTARTS</span>
-          <span class="tc">web-8080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">local</span><span class="tc">:8080 → :80</span><span class="tc">41231</span><span class="tc">2s</span><span class="tc">0</span>
-          <span class="tc">rev-9000</span><span class="tc s-up">up</span><span class="tc s-host">edge02</span><span class="tc">remote</span><span class="tc">:9000 ← :3000</span><span class="tc">41209</span><span class="tc">1h02m</span><span class="tc s-r1">1</span>
-          <span class="tc">px-1080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">dynamic</span><span class="tc">socks5 :1080</span><span class="tc">41208</span><span class="tc">2h14m</span><span class="tc">0</span>
+    <div class="hero-cases" data-reveal>
+      <div class="case case-you">
+        <div class="case-tag"><span class="en">You type it</span><span class="zh">你自己敲</span></div>
+        <div class="terminal">
+          <div class="term-bar">
+            <span class="tl r"></span><span class="tl y"></span><span class="tl g"></span>
+            <span class="tt">tunlite — ssh tunnels</span>
+          </div>
+          <div class="term-body">
+            <div class="ln cmd" style="animation-delay:.05s">tunlite add web-8080 --to deploy@app01 -L 8080:localhost:80</div>
+            <div class="ln ok"  style="animation-delay:.18s">  ✓ added web-8080   local  :8080 → app01:80 · daemon picked it up</div>
+            <div class="ln cmd" style="animation-delay:.34s">tunlite status</div>
+            <div class="term-table" style="animation-delay:.46s">
+              <span class="tc th">NAME</span><span class="tc th">STATE</span><span class="tc th">HOST</span><span class="tc th">TYPE</span><span class="tc th">ROUTE</span><span class="tc th">PID</span><span class="tc th">UP</span><span class="tc th">RESTARTS</span>
+              <span class="tc">web-8080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">local</span><span class="tc">:8080 → :80</span><span class="tc">41231</span><span class="tc">2s</span><span class="tc">0</span>
+              <span class="tc">rev-9000</span><span class="tc s-up">up</span><span class="tc s-host">edge02</span><span class="tc">remote</span><span class="tc">:9000 ← :3000</span><span class="tc">41209</span><span class="tc">1h02m</span><span class="tc s-r1">1</span>
+              <span class="tc">px-1080</span><span class="tc s-up">up</span><span class="tc s-host">app01</span><span class="tc">dynamic</span><span class="tc">socks5 :1080</span><span class="tc">41208</span><span class="tc">2h14m</span><span class="tc">0</span>
+            </div>
+            <div class="ln cmd cursor-ln" style="animation-delay:1.0s"></div>
+          </div>
         </div>
-        <div class="ln cmd cursor-ln" style="animation-delay:1.0s"></div>
+      </div>
+
+      <div class="case">
+        <div class="convo">
+          <div class="term-bar">
+            <span class="dotc"></span>
+            <span class="tt">Claude Code</span>
+          </div>
+          <div class="convo-body">
+            <div class="msg user"><span class="en">Forward the Postgres on app01 to my laptop.</span><span class="zh">把 app01 上的 Postgres 转发到我电脑。</span></div>
+            <div class="msg bot">
+              <span class="en">On it — adding a local forward; it comes up automatically.</span><span class="zh">好的，加一条本地转发，加完它自己就连上了。</span>
+              <div class="tool">tunlite add pg --to deploy@app01 -L 5432:localhost:5432 --json<span class="rc">ok · up</span></div>
+            </div>
+            <div class="msg bot">
+              <span class="en">Connected — here's the status.</span><span class="zh">连上了，给你看下状态。</span>
+              <div class="tool">tunlite status pg --json<span class="rc">up · 3s</span></div>
+            </div>
+            <div class="msg bot done"><span class="en">Done — <b>localhost:5432</b> now reaches app01's Postgres, and the daemon keeps it alive.</span><span class="zh">搞定 —— <b>localhost:5432</b> 现在能连到 app01 的 Postgres 了，守护进程会一直帮你守着。</span></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -110,7 +136,7 @@
       <div class="vcard" data-reveal>
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H4z"/><path d="M8 20h8M7 9l2.5 2.5L7 14M13 14h4"/></svg></div>
         <h3><span class="en">Agent-native</span><span class="zh">Agent 原生</span></h3>
-        <p><span class="en"><code>--json</code> and stable exit codes on every command, plus a bundled agent skill — coding agents manage your tunnels end-to-end.</span><span class="zh">每个命令都带 <code>--json</code> 和稳定退出码，还内置一份 agent skill —— coding agent 能端到端地接管你的隧道。</span></p>
+        <p><span class="en"><code>--json</code> and stable exit codes on every command, plus a bundled Agent skill — an AI Agent manages your tunnels end-to-end.</span><span class="zh">每个命令都带 <code>--json</code> 和稳定退出码，还内置一份 Agent skill —— AI Agent 能端到端地接管你的隧道。</span></p>
       </div>
       <div class="vcard" data-reveal>
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.5 2.5M16.5 16.5L19 19M19 5l-2.5 2.5M7.5 16.5L5 19"/><circle cx="12" cy="12" r="3"/></svg></div>
@@ -128,40 +154,54 @@
 
 <div class="divider"></div>
 
-<!-- ============ SEE IT ============ -->
+<!-- ============ SEE IT — everyday run ============ -->
 <section class="section">
   <div class="wrap">
     <div class="sec-head" data-reveal>
-      <h2><span class="en">See it in action</span><span class="zh">看它跑起来</span></h2>
+      <h2><span class="en">See it run</span><span class="zh">看它跑起来</span></h2>
+    </div>
+
+    <figure data-reveal style="margin:0 auto;max-width:860px;text-align:center">
+      <img src="demo.gif" alt="tunlite — define a tunnel, the daemon brings it up, check status, tail logs" loading="lazy" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.45)">
+      <figcaption style="margin-top:14px;color:var(--muted,#9aa);font-size:14px"><span class="en">Define a tunnel once — <code>tunlite</code> brings it up and keeps it connected.</span><span class="zh">建一条隧道 —— <code>tunlite</code> 帮你连上，并一直保持在线。</span></figcaption>
+    </figure>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ============ SEE IT — live dashboard ============ -->
+<section class="section">
+  <div class="wrap">
+    <div class="sec-head" data-reveal>
+      <h2><span class="en">Live top-style dashboard</span><span class="zh">实时 top 式面板</span></h2>
     </div>
 
     <figure data-reveal style="margin:0 auto;max-width:860px;text-align:center">
       <img src="monitor.gif" alt="tunlite monitor — live top-style dashboard with auto-reconnect" loading="lazy" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,0,0,.45)">
-      <figcaption style="margin-top:14px;color:var(--muted,#9aa);font-size:14px"><span class="en"><code>tunlite monitor</code> — a live, top-style dashboard; the daemon auto-reconnects a dropped tunnel right in front of you.</span><span class="zh"><code>tunlite monitor</code> —— 实时 top 式面板;守护进程会在你眼前把掉线的隧道自动重连回来。</span></figcaption>
+      <figcaption style="margin-top:14px;color:var(--muted,#9aa);font-size:14px"><span class="en"><code>tunlite monitor</code> — a live dashboard for every tunnel's state, with auto-reconnect in front of you.</span><span class="zh"><code>tunlite monitor</code> —— 每条隧道的状态尽在掌控,守护进程在你眼前自动重连。</span></figcaption>
     </figure>
-
-    <div data-reveal style="display:flex;flex-wrap:wrap;gap:22px;margin-top:34px;justify-content:center">
-      <figure style="flex:1;min-width:300px;max-width:520px;margin:0;text-align:center">
-        <img src="monitor-list.png" alt="monitor dashboard — every tunnel's state at a glance" loading="lazy" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 14px 40px rgba(0,0,0,.4)">
-        <figcaption style="margin-top:12px;color:var(--muted,#9aa);font-size:14px"><span class="en">Every tunnel's state at a glance.</span><span class="zh">每条隧道的状态一目了然。</span></figcaption>
-      </figure>
-      <figure style="flex:1;min-width:300px;max-width:520px;margin:0;text-align:center">
-        <img src="monitor-detail.png" alt="per-tunnel detail — settings and live reconnect logs" loading="lazy" style="width:100%;border-radius:12px;border:1px solid rgba(255,255,255,.08);box-shadow:0 14px 40px rgba(0,0,0,.4)">
-        <figcaption style="margin-top:12px;color:var(--muted,#9aa);font-size:14px"><span class="en">Drill into one for its settings and live logs.</span><span class="zh">钻进任意一条看它的设置与实时日志。</span></figcaption>
-      </figure>
-    </div>
   </div>
 </section>
 
 <div class="divider"></div>
 
 <!-- ============ GET STARTED ============ -->
-<section class="section">
+<section class="section" id="start">
   <div class="wrap">
     <div class="sec-head" data-reveal>
-      <span class="sec-num">01</span>
       <h2><span class="en">Get started in 30 seconds</span><span class="zh">30 秒上手</span></h2>
     </div>
+
+    <div class="agent-cta" data-reveal>
+      <p class="agent-cta-eyebrow"><span class="en">Install with your AI Agent</span><span class="zh">让 AI Agent 帮你装</span></p>
+      <div class="agent-cta-box">
+        <pre class="agent-prompt"><code>Read and follow https://tunlite.dev/skill.txt
+to install tunlite (an SSH tunnel manager) and its skill.</code></pre>
+        <button class="copy" type="button">copy</button>
+      </div>
+    </div>
+    <p class="agent-or" data-reveal><span class="en">— or set it up yourself —</span><span class="zh">—— 或者自己来 ——</span></p>
 
     <div class="start-grid">
       <div data-reveal>
@@ -184,8 +224,8 @@
     </div>
 
     <p class="start-more" data-reveal style="margin-top:34px">
-      <span class="en">That's the whole flow. Everything else — multi-forwards, daemon-less <code>run</code>, jump hosts, tags, webhooks, the agent skill — is in the <a href="docs.html">full documentation →</a></span>
-      <span class="zh">整个流程就这些。其余的 —— 多转发、无守护进程的 <code>run</code>、跳板机、标签、webhook、agent skill —— 都在<a href="docs.html">完整文档里 →</a></span>
+      <span class="en">That's the whole flow. Everything else — multi-forwards, daemon-less <code>run</code>, jump hosts, tags, webhooks, the Agent skill — is in the <a href="docs.html">full documentation →</a></span>
+      <span class="zh">整个流程就这些。其余的 —— 多转发、无守护进程的 <code>run</code>、跳板机、标签、webhook、Agent skill —— 都在<a href="docs.html">完整文档里 →</a></span>
     </p>
   </div>
 </section>
@@ -194,7 +234,7 @@
   <div class="foot-in">
     <div>
       <div class="foot-brand">tun<span class="pr">lite</span></div>
-      <div class="foot-tag"><span class="en">Pure Node.js · zero deps · MIT</span><span class="zh">纯 Node.js · 零依赖 · MIT</span></div>
+      <div class="foot-tag"><span class="en">Agent-native · zero deps · MIT</span><span class="zh">Agent 原生 · 零依赖 · MIT</span></div>
     </div>
     <div class="foot-links">
       <a href="docs.html"><span class="en">Docs</span><span class="zh">文档</span></a>

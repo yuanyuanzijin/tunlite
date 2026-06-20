@@ -250,6 +250,51 @@ nav {
 .copy:hover { color: var(--accent); border-color: var(--accent); }
 .copy.done { color: var(--accent); border-color: var(--accent); }
 
+/* "install with your AI agent" — a distinct card leading Get-started, holding the
+   multi-line prompt you copy and paste to your agent */
+.agent-cta {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 30px 28px;
+  background: rgba(53, 230, 192, 0.035);
+}
+.agent-cta-eyebrow {
+  margin: 0 0 16px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: .5px;
+  color: var(--accent);
+}
+.agent-cta-box {
+  position: relative;
+  max-width: 600px;
+  margin: 0 auto;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 16px 18px;
+}
+.agent-prompt {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-right: 58px;
+}
+.agent-cta-box .copy { position: absolute; top: 11px; right: 11px; }
+.agent-or { text-align: center; margin: 22px 0 18px; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+@media (max-width: 560px) {
+  .agent-cta { padding: 24px 15px; }
+  .agent-prompt { font-size: 12.5px; padding-right: 52px; }
+}
+
 /* ---------- footer ---------- */
 footer { border-top: 1px solid var(--line-soft); padding: 44px 0 56px; margin-top: 30px; position: relative; z-index: 1; }
 .foot-in { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; display: flex; flex-wrap: wrap; gap: 28px; justify-content: space-between; align-items: flex-start; }
@@ -413,6 +458,76 @@ h1.title .accent { color: var(--accent); }
 }
 .term-table .tc { white-space: nowrap; }
 .term-table .th { color: var(--faint); }
+
+/* hero: two side-by-side cases — "you type it" vs "ask an AI agent" */
+.hero-cases {
+  margin-top: 52px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  align-items: start;
+}
+@media (max-width: 860px) { .hero-cases { grid-template-columns: 1fr; gap: 26px; } }
+/* on phones the stacked demos get very tall — keep only the on-point "ask an AI Agent" one */
+@media (max-width: 700px) { .hero-cases .case.case-you { display: none; } }
+.case { min-width: 0; }
+.case .terminal { margin-top: 0; }
+.case-tag {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 11px 2px;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: .4px;
+  color: var(--faint);
+}
+.case-tag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-deep); }
+
+/* Claude-Code-style conversation panel — mirrors the terminal look */
+.convo {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #0b1112, #080c0d);
+  box-shadow: 0 40px 90px -40px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+  position: relative;
+}
+.convo::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .55;
+}
+.convo .term-bar .dotc { width: 11px; height: 11px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 9px var(--accent); }
+.convo-body { padding: 18px 18px 20px; display: flex; flex-direction: column; gap: 13px; }
+.msg { font-size: 13.5px; line-height: 1.62; max-width: 92%; }
+.msg b { color: var(--text); font-weight: 600; }
+.msg.user {
+  align-self: flex-end;
+  font-family: var(--sans);
+  color: var(--text);
+  background: rgba(53, 230, 192, 0.08);
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 4px 12px;
+  padding: 8px 13px;
+}
+.msg.bot { align-self: flex-start; font-family: var(--sans); color: var(--muted); }
+.msg.bot.done { color: var(--text); }
+.msg.bot .tool {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px;
+  margin-top: 7px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 7px 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.msg.bot .tool::before { content: '▸'; color: var(--accent); }
+.msg.bot .tool .rc { margin-left: auto; color: var(--accent); font-size: 11.5px; white-space: nowrap; }
+.msg.bot .tool .rc.warn { color: var(--amber); }
 
 /* sections (landing) */
 .section { padding: 60px 0; position: relative; }

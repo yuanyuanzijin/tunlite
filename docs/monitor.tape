@@ -1,9 +1,6 @@
 # tunlite — `monitor` live dashboard (VHS tape)
 #
-# Produces THREE assets in one run:
-#   docs/monitor.gif          the animated dashboard (list -> detail -> live restart)
-#   docs/monitor-list.png     still: the dashboard (3 connected + 1 auto-reconnecting)
-#   docs/monitor-detail.png   still: a tunnel's detail view (settings + reconnect logs)
+# Produces docs/monitor.gif — the animated dashboard (list -> detail -> live restart).
 #
 # Render:
 #   brew install vhs
@@ -44,7 +41,6 @@ Show
 # ---- the live dashboard ----
 Type 'tunlite monitor' Sleep 600ms Enter
 Sleep 6s
-Screenshot docs/monitor-list.png
 
 # drill into the retrying tunnel -> its reconnect logs
 Type 'j' Sleep 450ms
@@ -52,7 +48,6 @@ Type 'j' Sleep 450ms
 Type 'j' Sleep 450ms
 Enter
 Sleep 3s
-Screenshot docs/monitor-detail.png
 
 # back to the list, restart a healthy tunnel to show live control (r -> y)
 Escape
