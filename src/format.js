@@ -37,14 +37,19 @@ function hostWithPort(t) {
 
 // A forward's accurate kind and its endpoints (no type word).
 function forwardType(f) { return f.type; }
-// The arrow points at the far/server side: a local forward reaches out to its
-// remote destination (`→`), a remote forward publishes inward toward the server's
-// listen port (`←`). Endpoints keep ssh-flag order; the direction alone tells
-// local from remote.
+// The route always reads with the LOCAL side on the left and the remote/server
+// side on the right. A local forward reaches out to its remote destination (`→`);
+// a remote forward publishes a local service back from the server's listen port,
+// so its arrow points remote→local (`←`). The two endpoints (`listen` = the
+// ssh-flag's bind:port, `dest` = host:hostport) keep their ssh meaning — only
+// their column order flips by type so "local left, remote right" holds for both.
 function forwardArrow(type) { return type === 'remote' ? '←' : '→'; }
 function forwardRoute(f) {
   if (f.type === 'dynamic') return `${f.bind}:${f.srcPort}`;
-  return `${f.bind}:${f.srcPort} ${forwardArrow(f.type)} ${f.destHost}:${f.destPort}`;
+  const listen = `${f.bind}:${f.srcPort}`, dest = `${f.destHost}:${f.destPort}`;
+  return f.type === 'remote'
+    ? `${dest} ${forwardArrow(f.type)} ${listen}`
+    : `${listen} ${forwardArrow(f.type)} ${dest}`;
 }
 function forwardTypes(t) {
   const seen = [];
@@ -68,9 +73,12 @@ function shellQuote(s) {
 // One-line human label for a single forward (used by add/set echo + status detail).
 function forwardLabel(f) {
   if (f.type === 'dynamic') return `dynamic  ${f.bind}:${f.srcPort}  (SOCKS5)`;
-  // Arrow direction matches the route column (see forwardArrow): `→` for local,
-  // `←` for remote — it points at the far/server side.
-  return `${f.type.padEnd(7)} ${f.bind}:${f.srcPort} ${forwardArrow(f.type)} ${f.destHost}:${f.destPort}`;
+  // Same convention as forwardRoute: local side on the left, server side on the
+  // right; `→` for local (reaches out), `←` for remote (publishes remote→local).
+  const listen = `${f.bind}:${f.srcPort}`, dest = `${f.destHost}:${f.destPort}`;
+  return f.type === 'remote'
+    ? `${f.type.padEnd(7)} ${dest} ${forwardArrow(f.type)} ${listen}`
+    : `${f.type.padEnd(7)} ${listen} ${forwardArrow(f.type)} ${dest}`;
 }
 
 // ssh-native flag string for one forward, trimming a default 127.0.0.1 bind.

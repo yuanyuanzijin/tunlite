@@ -85,7 +85,7 @@ test('buildAddCommand emits ssh-opt, --disabled, and shell-quotes special values
 
 test('forwardLabel renders a readable one-liner', () => {
   assert.match(format.forwardLabel({ type: 'local', bind: '127.0.0.1', srcPort: 8080, destHost: 'ex', destPort: 80 }), /local.*127\.0\.0\.1:8080 → ex:80/);
-  assert.match(format.forwardLabel({ type: 'remote', bind: '0.0.0.0', srcPort: 9000, destHost: 'localhost', destPort: 3000 }), /remote.*0\.0\.0\.0:9000 ← localhost:3000/);
+  assert.match(format.forwardLabel({ type: 'remote', bind: '0.0.0.0', srcPort: 9000, destHost: 'localhost', destPort: 3000 }), /remote.*localhost:3000 ← 0\.0\.0\.0:9000/);
   assert.match(format.forwardLabel({ type: 'dynamic', bind: '127.0.0.1', srcPort: 1080 }), /dynamic.*1080/);
 });
 
@@ -126,8 +126,8 @@ test('forwardType/forwardRoute expose the real type and endpoints', () => {
   assert.equal(forwardRoute(LOCAL.forwards[0]), '127.0.0.1:8080 → 10.0.0.5:80');
   assert.equal(forwardRoute(SOCKS.forwards[0]), '127.0.0.1:1080');
   assert.equal(forwardTypes(SOCKS), 'dynamic');
-  // remote flips the arrow (`←`) so it points at the server side; endpoints keep order
-  assert.equal(forwardRoutes(REMOTE), '0.0.0.0:9000 ← localhost:3000');
+  // remote: local side on the left, server listen on the right, arrow points remote→local (`←`)
+  assert.equal(forwardRoutes(REMOTE), 'localhost:3000 ← 0.0.0.0:9000');
 });
 
 test('TUNNEL_COLUMNS headers and order', () => {

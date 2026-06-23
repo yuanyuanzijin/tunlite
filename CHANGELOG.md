@@ -9,6 +9,15 @@ release process.
 > tunlite debuted publicly at **0.9.0**. Earlier `0.x` releases were a private
 > prototype and are not part of this public history.
 
+## [0.10.2] - 2026-06-23
+
+### Changed
+- `status` and `monitor` now render a **remote (`-R`) forward's route** with the local
+  side on the left and the arrow following the traffic — `localhost:3000 ← host:9000`,
+  the same way local forwards already read (local on the left, arrow pointing at the
+  far end). Just a clearer, more consistent route column at a glance; tunnels and
+  config are untouched.
+
 ## [0.10.1] - 2026-06-20
 
 ### Added
@@ -269,6 +278,7 @@ First public release.
   or a single quote before building the remote command, closing a shell-injection
   path through a crafted key comment.
 
+[0.10.2]: https://github.com/yuanyuanzijin/tunlite/compare/v0.10.1...v0.10.2
 [0.10.1]: https://github.com/yuanyuanzijin/tunlite/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.5...v0.10.0
 [0.9.5]: https://github.com/yuanyuanzijin/tunlite/compare/v0.9.4...v0.9.5
